@@ -1,0 +1,19 @@
+[package]
+name = "un7z-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "CLI and differential-test frontend for the un7z core"
+publish = false
+
+[[bin]]
+name = "un7z"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+un7z = { version = "=0.1.0", path = "../un7z" }
+
+[lints]
+workspace = true

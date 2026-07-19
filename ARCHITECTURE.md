@@ -1,0 +1,285 @@
+# Architecture
+
+Status: Phase 7 Python binding over the stable Rust API, 2026-07-18. The
+bounded byte parser, borrowed raw grammar, separate graph validator, semantic
+model validator, owned metadata model, arbitrary-graph executor, Go-parity
+decoders,
+crypto/password layer, sequential volume assembly, supported external metadata,
+and CRC-finalizing member APIs are implemented behind a curated public
+surface. A separately locked PyO3/maturin adapter exposes that surface without
+moving parser or decoder logic across the FFI boundary. Constant-memory
+decoder pipelines remain future work.
+
+## Design goals
+
+The core treats every archive byte, declared count, offset, size, coder
+property, filename, and volume response as untrusted. Parsing, semantic
+validation, graph construction, decoding, volume access, and filesystem policy
+are separate layers. The Python FFI wrapper does not reinterpret internal
+parser state or copy complete decoded entries merely to cross the boundary.
+
+The core is unpack-only. It will not expose compression, archive creation,
+archive mutation, or implicit filesystem extraction.
+
+## Data flow and trust boundaries
+
+```text
+VolumeProvider
+    -> bounded byte access / SFX and volume layout
+    -> raw parser (syntax only, bounded sub-readers)
+    -> semantic validator -> graph validator (DAG and resource plan)
+    -> validated archive model (all cross-reference invariants)
+    -> decoder executor (checksums, limits, cancellation)
+    -> member reader / caller-provided sink
+
+Raw UTF-16 path metadata -----------------> explicit safe-path validator
+```
+
+No layer may make a lower layer's unvalidated representation public.
+
+## Layer responsibilities
+
+### Byte and property parsing
+
+The raw parser owns 7z variable-length integers, little-endian values, bitsets,
+property tags, and bounded byte ranges. Every length-delimited property is
+parsed through a child reader limited to exactly the declared length. A known
+property must consume that reader exactly; an unknown but structurally valid
+property is retained or skipped only according to the specification.
+
+The parser performs checked offset arithmetic and fallible conversions before
+allocation. It does not build decoder pipelines and does not decide whether a
+raw path is safe.
+
+The implemented Phase 2 byte layer uses a bounded slice reader, validates
+total-input/header/SFX bounds, and checks cancellation and work budget while
+scanning, checksumming, and reading records. `raw.rs` parses borrowed syntax
+records and owns no validated claims. Fixed fields become a `HeaderEnvelope`
+only after start/next-header CRC, version, identifier, and absolute-range
+validation. Length-delimited file properties stay borrowed until `validate.rs`
+parses each known property through an exact bounded reader or retains an
+unknown payload according to its declared length.
+
+### Validated archive model
+
+Conversion from raw records to the validated model is the only place that may
+resolve indices and counts. It must validate, before decoding:
+
+- file, folder, coder, input-stream, output-stream, packed-stream, substream,
+  and CRC-array counts;
+- all bind-pair and packed-stream indices, with required uniqueness;
+- checked totals and ranges for packed bytes, unpacked bytes, names, and
+  external property streams;
+- the exact mapping of non-empty files to substreams, independently of path
+  validity;
+- optional CRCs and optional unpack sizes without sentinel values; and
+- external properties, additional streams, archive properties, StartPos,
+  anti-items, and comments as their phases are implemented.
+
+Raw UTF-16 code units remain attached to member metadata. A decoded display
+name is additional metadata and cannot replace the raw code units.
+
+The implemented model preserves inline names, times, attributes, StartPos,
+empty/anti flags, archive/comment/unknown properties, and external property
+definitions. `metadata.rs` decodes referenced AdditionalStreamsInfo folders,
+verifies folder/substream CRCs, and applies external Name, FILETIME, attribute,
+and StartPos values through exact bounded readers. External folder definitions
+remain typed unsupported. File-to-substream cardinality is exact and is
+resolved independently of path safety.
+
+### Stream graph
+
+A folder becomes a graph of typed input and output ports. Graph construction
+does not rely on coder declaration order. It validates every port index,
+rejects duplicate bindings and duplicate packed inputs, detects cycles, and
+requires the format-defined root structure. A topological execution schedule
+is derived only after validation.
+
+The implemented graph layer is isolated in `graph.rs`. It constructs port
+ownership, validates bind and packed-input domains/uniqueness/partitioning,
+requires one root output, rejects cycles, and returns an immutable
+dependency-respecting coder order. `validate.rs` combines that result with
+validated coder properties, optional output sizes, CRCs, and substreams; raw
+indices never reach a decoder-facing model unchecked.
+
+This representation must support arbitrary valid graphs, including multi-input
+coders such as BCJ2. A method implementation receives only validated property
+bytes, validated optional sizes, bounded inputs, an allocation account, and an
+operation control object.
+
+### Decoding and verification
+
+Decoder constructors validate properties and account dictionary or working
+memory before allocating it. Read loops check cancellation and work budget
+between bounded input reads and decoder iterations. Output accounting is done
+before bytes are returned to the caller.
+
+Checksum layers are distinct: start header, next header, packed stream,
+additional stream, decoded encoded header, folder stream, and member. `None`
+means no checksum is present; CRC value zero is a real checksum value. A
+convenience extraction call reports success only after member CRC verification.
+A streaming member reader exposes `finish()` because `Drop` cannot return
+verification failures.
+
+An unknown unpacked size remains `None`. EOS-based decoding is permitted only
+for methods whose 7z framing and codec semantics make the end unambiguous;
+otherwise the operation returns `UnsupportedFeature` with a stable feature
+name.
+
+The executor materializes validated packed inputs, walks the immutable
+topological coder order, moves each unique bound output to its destination
+port, and requires the one validated root output. Copy, LZMA, LZMA2, Delta,
+BCJ, BCJ2, PPC, ARM, ARM64, SPARC, Deflate, BZip2, PPMd, Brotli, LZ4,
+Zstandard, Deflate64, IA64, ARM Thumb, RISC-V, Swap2, Swap4, and AES are
+dispatched only after arity, property, memory, and output validation.
+Deflate64's fixed 64 KiB window is included in validated folder resource
+accounting before packed bytes are copied. Multi-input BCJ2 is supported; an otherwise valid
+multi-output method has no registered decoder and returns a typed unsupported
+feature rather than being reshaped into a chain.
+
+Before packed input is copied, execution preflights every coder registration,
+arity, and fixed property length. It constructs one checked output-to-input
+binding table, so execution is linear in coder ports and bind pairs rather than
+rescanning the graph at every node. Archive operations preflight all declared
+substream sizes against the per-entry limit. A single unknown final substream
+receives only the remaining per-entry allowance; an unknown non-final size is a
+typed unsupported feature before decode begins.
+
+Unknown coder output is admitted through an explicit method allowlist. Copy
+and size-preserving filters derive their result size from bounded packed input;
+BCJ2 terminates at its bounded main input; LZMA/LZMA2 require their codec EOS;
+and raw Deflate/Deflate64 require their final block and enforce packed-input
+consumption. PPMd and AES require declared sizes. The current generic reader
+adapters for BZip2, Brotli, LZ4, and Zstandard are conservatively rejected for
+unknown output because their internal buffering does not expose exact frame
+consumption to this layer.
+
+Current decoding is bounded but one-shot: one folder output is retained in a
+`Vec` and a `MemberReader` exposes bounded slices of that buffer while tracking
+the member CRC. LZMA uses this accounted output as history instead of allocating
+a second declared-size dictionary. This honors configured memory/output limits
+but is not a constant-memory decompression stream. `Archive::verify` decodes a
+solid folder once and verifies substreams in natural order.
+`Archive::extract_entries_to` follows the same one-decode-per-folder path and
+emits bounded chunks to a caller-owned `EntrySink`; it calls `finish_entry`
+only after that member CRC succeeds, and only after the containing folder CRC
+has already succeeded. Random member access may re-decode from the folder
+start.
+
+### Volumes
+
+`VolumeProvider` decouples logical volume requests from paths, memory buffers,
+and future callback adapters. The archive-owned assembly loop enforces
+`max_volumes` and `max_total_input_bytes`, validates each reported length before
+capacity reservation, performs fallible allocation, checkpoints before the
+callback and between bounded reads, and returns `MissingVolume` with the exact
+expected sequential name when the logical archive requires that part.
+
+The archive layer, not a provider, owns `.001`, `.002`, ... sequence semantics.
+`PathVolumeProvider` and `MemoryVolumeProvider` are current implementations.
+The logical bytes are concatenated only within count/aggregate limits, so
+encrypted blocks and packed streams crossing boundaries use the same parser and
+decoder ranges as single-volume input. A terminal missing part is ignored only
+after the complete logical archive range validates.
+
+### Filesystem policy
+
+The archive model preserves names and entry ordering even when a name is
+unsafe. Path validation is an explicit, side-effect-free query and never
+removes or reorders members. It rejects parent traversal, roots, drive prefixes,
+UNC/device prefixes, and NULs using both slash conventions. There is no
+automatic filesystem extraction in the initial API.
+
+Any future extraction adapter must separately define collision, symlink,
+hardlink, platform-name, and time/attribute policy and must use caller-provided
+destinations.
+
+### Password state
+
+Passwords belong to one archive object and are stored as zeroizing UTF-16LE
+bytes. AES properties and `max_kdf_power` are checked before hashing; KDF rounds
+consume work budget and observe cancellation. Derived keys, IVs, and digest
+buffers are zeroized. There is no process-global password or derived-key cache.
+AES-256-CBC and SHA-256 use the exact RustCrypto crates admitted in
+`DEPENDENCIES.md`, not handwritten primitives.
+
+## Public API
+
+Phase 6 freezes concrete, FFI-mappable metadata, option, resource, and error
+types that map directly to:
+
+- `open_path`
+- `open_bytes`
+- `open_volumes`
+- list metadata
+- `extract_entry_to`
+- bounded streaming or callback extraction
+
+Decoder internals, raw graph nodes, generic parser types, borrowed parser
+buffers, and folder/substream indices are not stable public API. The hidden
+`unstable-internals` feature exposes them only to repository structural tests
+and fuzzers and is off by default. `Archive`, `FileEntry`, `ArchiveResources`,
+`MemberReader`, `EntrySink`, limits/errors, path validators, and volume traits
+form the supported root surface documented in `API.md`.
+
+`ArchiveResources` accounts owned logical input, validated-model payload, and
+zeroizing password storage. An active `MemberReader` separately reports the
+complete folder output it retains. Dictionary/window allocations and decoder
+output remain constrained by their configured limits; allocator metadata and
+stack frames are not reported as archive payload.
+
+## Python boundary
+
+`bindings/python` is excluded from the Rust workspace and has its own lockfile,
+deny policy, package metadata, tests, and binding-specific `AGENTS.md`. The
+distribution is `un7z`; maturin installs the ABI3 native extension as
+`un7z._native`. The core and CLI have no PyO3 or Python dependency.
+
+`open_path`, `open_bytes`, and `open_volumes` construct the same owned Rust
+`Archive`. Python metadata objects are owned `FileEntry` snapshots, including
+exact UTF-16 units and optional values. The binding exposes no raw parser,
+validated wire-model, or coder-graph type and cannot derive a filesystem path.
+
+Every archive-processing or caller-invoking Python operation has an explicit
+unwind guard; trivial values and generated class-field access remain behind
+PyO3's native trampoline. Parsing, KDF work,
+decoding, volume assembly, and CRC verification execute inside
+`Python::detach`; only provider, writer, and callback invocations reattach. `extract_entry_to` adapts
+a Python `write(bytes)` method and `stream_entry` adapts a callable to the
+core's CRC-finalizing `Archive::extract_entry_to`. The core supplies at most
+8 KiB per write. Partial writer counts are honored, impossible counts are
+rejected, callback `False` cancels, and raised Python exceptions are preserved.
+
+Python volume providers are callables or objects with
+`open_volume(index, expected_name)` returning `bytes` or `None`. A returned
+byte string is length-checked before its Rust copy; core volume count,
+aggregate input, cancellation, and work accounting remain authoritative.
+Python allocated the source object before Rust sees it, so caller-side Python
+memory is outside archive resource accounting.
+
+The binding stores no global operation state. Archives are immutable behind an
+`Arc`; cancellation and work budgets are per operation; Rust password copies
+are zeroized, then the core retains only its per-archive secret representation.
+The original Python `str` remains Python-owned and cannot be cleared by Rust.
+
+## Solid extraction
+
+Natural-order solid extraction decodes each folder once, verifies the folder
+before delivery, and verifies each substream/member before the corresponding
+sink finalization. The current decoder still materializes the bounded folder
+output before those callbacks. Random access may require re-decoding from a
+folder start and will be explicit about that cost. Cache designs may not weaken
+output limits, CRC verification, password isolation, or memory accounting.
+The 10,000-substream deterministic work-budget regression proves a linear
+entry/substream walk for verification and sink extraction, and the release
+benchmark measures the same one-folder-per-iteration path.
+
+## Unsafe code
+
+The core crate forbids unsafe code. Admitted third-party crates remain behind
+safe, bounded adapter APIs; their feature/unsafe audit is in `DEPENDENCIES.md`.
+If a future in-repository decoder cannot be delivered
+without unsafe code, it must live in a separate crate, have a written necessity
+and invariant audit, expose a safe bounded interface, receive dedicated Miri or
+sanitizer coverage as applicable, and be approved as a separate review. No such
+exception exists in the current implementation.

@@ -1,0 +1,48 @@
+un7z
+Copyright (c) 2026 un7z contributors
+
+This project uses github.com/bodgit/sevenzip as a behavioral and architectural
+reference. The pinned reference is commit
+dcfc72a0ee9f527c55521f44ffdf1c31b732e256, licensed under BSD-3-Clause:
+
+Copyright (c) 2020, Matt Dainty
+
+Phase 2 variable-integer, signature/start-header, serialized header grammar,
+file/substream mapping, and selected decoder-property behavior adapted from the
+pinned reference are identified precisely in PROVENANCE.md and retain the
+upstream BSD-3-Clause notice reproduced in LICENSE-BSD-3-CLAUSE.
+
+The Phase 3 Delta, BCJ, BCJ2, PPC, ARM, ARM64, and SPARC decoder work adapts
+the pinned reference implementation and retains that notice. The safe Rust
+LZMA and LZMA2 decoder adapts github.com/ulikunitz/xz v0.5.15 at commit
+7eee8a8a405163554a9accec7b9402ee21400769, Copyright (c) 2014-2022 Ulrich
+Kunitz, BSD-3-Clause. Its exact notice is reproduced in
+LICENSE-ULIKUNITZ-XZ-BSD-3-CLAUSE. Exact files, hashes, symbols, and the nature
+of each adaptation are recorded in PROVENANCE.md.
+
+The safe Rust PPMd7 variant-H decoder adapts github.com/stangelandcl/ppmd
+v0.1.1 at commit e7008704a75379d49824363eca5d87e947b2d9fa,
+Copyright (c) 2022 Clayton Stangeland and Copyright (c) 2014 Adam Hathcock,
+MIT. Its exact notice is reproduced in LICENSE-STANGELANDCL-PPMD-MIT. Exact
+files, hashes, and adaptation details are recorded in PROVENANCE.md.
+
+No AES or SHA-256 algorithm implementation is handwritten. Runtime AES-256-CBC
+and SHA-256 are supplied by the RustCrypto `aes`, `cbc`, `cipher`, and `sha2`
+crates. Deflate, BZip2, Brotli, LZ4, and Zstandard decoding is supplied by the
+permissively licensed crates recorded in DEPENDENCIES.md and PROVENANCE.md.
+
+The safe Rust Deflate64 decoder adapts the block grammar and tables from
+Apache Commons Compress at commit
+9499ba8ed3c6dce1275ac3d0471afa414b23daff, licensed Apache-2.0:
+
+Apache Commons Compress
+Copyright 2002-2026 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (https://www.apache.org/).
+
+The IA64, ARM Thumb, and RISC-V instruction layouts were independently
+expressed in safe Rust using the 0BSD XZ Utils filter descriptions at commit
+f3b5688159c60495f48db3942a36509671dfce89 as an algorithm reference. No XZ
+library code is linked or shipped as a runtime dependency. Exact files and
+hashes are recorded in PROVENANCE.md.

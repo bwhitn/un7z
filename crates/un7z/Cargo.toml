@@ -1,0 +1,47 @@
+[package]
+name = "un7z"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Security-focused, unpack-only 7z archive core (pre-alpha)"
+readme = "../../README.md"
+keywords = ["7z", "archive", "decompression"]
+categories = ["compression", "parser-implementations"]
+publish = false
+
+[lib]
+name = "un7z"
+path = "src/lib.rs"
+
+[features]
+default = []
+# Parser/model internals are exposed only for the dedicated structural
+# regression suite and fuzz harnesses. They are not part of the stable API.
+unstable-internals = []
+
+[dependencies]
+aes = { version = "=0.9.1", default-features = false, features = ["zeroize"] }
+brotli-decompressor = { version = "=5.0.3", default-features = false, features = ["std"] }
+bzip2-rs = { version = "=0.1.2", default-features = false, features = ["rustc_1_37"] }
+cbc = { version = "=0.2.1", default-features = false, features = ["zeroize"] }
+lz4_flex = { version = "=0.13.1", default-features = false, features = ["checked-decode", "frame", "safe-decode", "safe-encode"] }
+miniz_oxide = { version = "=0.8.9", default-features = false, features = ["with-alloc"] }
+ruzstd = { version = "=0.8.2", default-features = false, features = ["std"] }
+sha2 = { version = "=0.11.0", default-features = false, features = ["zeroize"] }
+zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
+
+[[bench]]
+name = "natural_order_solid"
+harness = false
+
+[[test]]
+name = "phase2_model"
+required-features = ["unstable-internals"]
+
+[[test]]
+name = "reference_headers"
+required-features = ["unstable-internals"]
+
+[lints]
+workspace = true

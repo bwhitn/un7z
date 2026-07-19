@@ -1,0 +1,269 @@
+# Compatibility
+
+## Current Rust status
+
+**Phase 7 adds a separate Python adapter but changes no codec compatibility
+claim; decoding is implemented only for the rows explicitly marked supported
+below.** The core locates regular and bounded
+SFX signatures; verifies stored, encoded, and encrypted header layers;
+validates arbitrary coder graphs; resolves supported external metadata;
+assembles bounded sequential volumes; and exposes CRC-finalizing member
+extraction and archive verification. The CLI implements `list`, `cat` to
+stdout, and `verify`; it never chooses a filesystem destination from archive
+metadata.
+
+Passwords are owned and zeroized per archive. Path and memory
+`VolumeProvider`s support sequential `.001` parts, including encrypted data and
+packed streams crossing part boundaries. The current member reader still
+streams a bounded member out of a fully decoded in-memory folder; it is not a
+constant-memory decompression pipeline. Random access to a solid member
+therefore re-decodes that folder, while `Archive::verify` and
+`Archive::extract_entries_to` decode each folder once in natural order. A sink
+entry is not finalized until its applicable CRC succeeds.
+
+The supported public surface is listed in `API.md`. Raw parser, envelope, and
+coder-graph exports are available only through the hidden
+`unstable-internals` regression/fuzz feature and are not compatibility API.
+The `un7z` Python distribution delegates to that stable surface and adds no
+method implementation or runtime `7zz` fallback.
+
+“Target” below means planned scope, not present codec capability.
+
+The Go-reference column describes the pinned behavioral reference after source
+and bundled-test inspection. It does not imply Rust support.
+
+## Methods and filters
+
+In addition to the named external fixtures below, the corpus-free
+`generated_oracle` test asks stock `7zz` 26.02 to author fresh Copy, LZMA,
+LZMA2, Delta, BCJ, BCJ2, PPC, ARM, ARM64, SPARC, Deflate, BZip2, and PPMd
+archives. Each method has exact bytes/SHA-256/size/CRC/name comparison and a
+packed-data corruption rejection; transforming filter cases also prove that
+the positive source was changed in the packed representation. This generated
+evidence does not extend to the private Brotli/LZ4/Zstd identifiers that stock
+`7zz` cannot author or decode.
+
+| Method/filter | Pinned Go reference | Rust status | Rust differential evidence |
+| --- | --- | --- | --- |
+| Copy | Registered; bundled fixture | Supported for validated graphs | `copy.7z`; corrupted-member, packed/folder/member CRC, output/work/cancellation regressions |
+| Delta | Registered; bundled fixture | Supported, distances 1..256 | `delta.7z`; local property/cancellation tests |
+| LZMA | Registered; bundled fixture | Supported for declared size and locally tested unknown-size EOS | `lzma.7z`; positive CRC-finalizing `Archive` extraction and raw EOS unit with every-prefix truncation, non-final/trailing range-state rejection, and malicious dictionary tests |
+| LZMA2 | Registered; bundled fixture | Supported with reset/chunk/EOS validation, including locally tested unknown-size EOS | `lzma2.7z`; positive known/unknown-size uncompressed chunk, every-prefix truncation, output/cancellation tests |
+| BCJ/x86 | Registered; bundled fixture | Supported | `bcj.7z`; exact bytes/SHA-256/member CRC |
+| BCJ2 | Registered; bundled fixture | Supported for validated four-input graphs | `bcj2.7z`; positive/truncated range input and output-limit tests |
+| PPC | Registered; bundled fixture | Supported | `ppc.7z`; tail-safety test |
+| ARM | Registered; bundled fixture | Supported | `arm.7z`; exact bytes/SHA-256/member CRC |
+| ARM64 | Registered; bundled fixture | Supported | `arm64.7z`; exact bytes/SHA-256/member CRC |
+| SPARC | Registered; bundled fixture | Supported | `sparc.7z`; exact bytes/SHA-256/member CRC |
+| Deflate | Registered; bundled fixture | Supported as raw Deflate with bounded 32 KiB working-memory charge and final-block unknown-size termination | `deflate.7z`; exact `7zz` bytes/SHA-256/size/CRC/metadata plus positive unknown-size and every-prefix truncation, output, dictionary, work, and cancellation tests |
+| BZip2 | Registered; bundled fixture | Supported with block-size preflight and bounded adapter | `bzip2.7z`; exact `7zz` bytes/SHA-256/size/CRC/metadata plus malformed header, memory, and cancellation tests |
+| PPMd | Registered; bundled fixture | Supported for PPMd7 variant H with declared output size | `ppmd.7z`; exact `7zz` bytes/SHA-256/size/CRC/metadata plus property, malicious-memory, truncation, work, and cancellation tests |
+| AES-256-CBC/SHA-256 | Registered; encrypted fixtures | Supported for declared-size AES-256-CBC streams and bounded direct/iterated 7z SHA-256 KDF | `aes7z.7z`, `t2.7z`-`t5.7z`, `7zcracker.7z`; generated header-encrypted and data-encrypted Copy exact `7zz` differentials with corruption and typed missing/wrong-password states; generated BCJ→LZMA2→AES encrypted-header differential; block truncation and KDF limit/work/cancellation tests |
+| Brotli | Registered; bundled private-method fixture | Supported, including the optional private 16-byte 7-Zip prefix | `brotli.7z` verifies and matches the common `deflate.7z` corpus bytes/SHA-256/metadata; stock `7zz` 26.02 rejects this private method ID |
+| LZ4 | Registered; bundled private-method fixture | Supported for checked LZ4 frames without external dictionaries | `lz4.7z` verifies and matches the common `deflate.7z` corpus bytes/SHA-256/metadata; stock `7zz` 26.02 rejects this private method ID |
+| Zstd | Registered; bundled private-method fixture | Supported for frames whose declared window is within limits; dictionary frames are typed unsupported | `zstd.7z` verifies and matches the common `deflate.7z` corpus bytes/SHA-256/metadata; stock `7zz` 26.02 rejects this private method ID |
+| Deflate64 | Not registered | Supported for stored, fixed, and dynamic blocks with a checked 64 KiB history charge and final-block EOS | Generated long-distance `deflate64.7z`; exact `7zz` bytes/SHA-256/size/CRC/metadata, direct dynamic-block regression, every stored-prefix truncation, trailing input, corruption, dictionary/output/work tests |
+| IA64 | Not registered | Supported for empty or four-byte start properties; complete 16-byte bundles are transformed and tails are retained | Generated transforming IA64 bundle archive; exact `7zz` bytes/SHA-256/size/CRC/metadata and corruption evidence |
+| ARM Thumb | Not registered | Supported for empty or four-byte start properties and complete aligned instructions | Generated transforming ARMT archive plus nonzero-start unit vector; exact `7zz` bytes/SHA-256/size/CRC/metadata and corruption evidence |
+| RISC-V | Not registered | Supported for JAL and sequential AUIPC pairs with empty or four-byte start properties; the architectural low alignment bit is ignored | Generated transforming JAL/AUIPC archive plus nonzero-start unit vector; exact `7zz` bytes/SHA-256/size/CRC/metadata and corruption evidence |
+| Swap2 | Not registered | Supported; complete two-byte groups are reversed and an odd tail is retained | Generated transforming Swap2 archive; exact `7zz` bytes/SHA-256/size/CRC/metadata, tail, property, and corruption tests |
+| Swap4 | Not registered | Supported; complete four-byte groups are reversed and a short tail is retained | Generated transforming Swap4 archive; exact `7zz` differential, tail/property/corruption tests, and real five-part encrypted/unencrypted volume evidence |
+
+## Container features and metadata
+
+| Feature | Pinned Go reference observation | Rust status |
+| --- | --- | --- |
+| Plain/encoded headers | Both covered by tests | Supported when every encoded-header coder is one of the supported methods; stored, encoded-folder/substream, and parsed-header bounds/CRCs enforced. Multiple decoded substreams are consumed exactly and concatenated in stream order; a generated two-substream Copy header containing one named empty file is accepted by stock `7zz` 26.02. Rust also safely handles a generated multi-folder form, but stock `7zz` rejects that form, so it is not a 7zz-compatibility claim |
+| Encrypted headers/data | Covered by password tests | Supported for graphs composed of supported methods; per-archive zeroized password state, KDF bound before hashing, and `PasswordRequired`/`WrongPasswordOrCorrupt` classification; positive external fixtures plus corpus-free generated header/data encryption, corruption, and exact oracle comparison |
+| Solid archives | Natural-order and pooled access exercised | Supported for core methods; `lzma.7z`, `lzma2.7z`, `delta.7z`, and `bcj2.7z` provide positive solid evidence; verification and caller-owned sink extraction decode each folder once |
+| Non-solid archives | Covered by fixtures | Supported for core methods; `copy.7z` provides positive non-solid evidence |
+| SFX | Fixed 1 MiB scan; bundled `sfx.exe` | Bounded configurable discovery plus supported encoded-header/member decoding; external `sfx.exe` and a corpus-free synthetic `MZ` prefix over a generated Copy archive list, verify, and match oracle bytes/SHA-256 |
+| Sequential `.001` volumes | Filesystem discovery; six bundled volumes | Supported through bounded object-safe `VolumeProvider`, `PathVolumeProvider`, and `MemoryVolumeProvider`; `multi.7z.001`-`.006` verifies through `Archive::open_path`, and a deterministic five-part unencrypted split verifies through memory |
+| Encrypted multi-volume | No identified bundled five-volume evidence | Supported by both a deterministic five-part split of `aes7z.7z` and a separately `7zz`-authored five-part encrypted Swap4 archive; exact output/metadata match the oracle |
+| Split entries | No separate claim from bundled volume archive | Supported through checked logical concatenation; the six-part fixture exercises packed data across part boundaries |
+| Empty files/directories | Bundled fixtures | EmptyStream/EmptyFile records parsed and mapped; empty files can be opened as verified zero-byte members; directory extraction returns typed unsupported feature |
+| UTF-16/Unicode names | UTF-16 decoding in parser | Exact UTF-16 code units, including unpaired surrogates, are preserved for inline and external names; lossy display conversion remains caller policy |
+| Timestamps | Inline properties parsed | Inline and external raw Windows FILETIME creation/access/modification values are preserved |
+| Windows/POSIX attributes and modes | Parsed/mapped | Inline and external raw Windows attributes are preserved; Unix-extension high bits expose a POSIX mode without applying it to a filesystem |
+| Symlink metadata | Mode mapping exists; no bundled corpus assertion | Unix-extension mode identifies symlinks and member bytes preserve the target; a generated `7zz -snl` archive matches mode and target bytes |
+| Duplicate names | Go `fs.FS` layer marks duplicates | Preserved in archive order as distinct entries; there is no automatic extraction/collision policy |
+| External folder/name/time/attribute streams | Explicit TODO errors | Referenced Name/time/attribute/StartPos streams are decoded from AdditionalStreamsInfo with exact consumption and CRC/limit enforcement; external folder definitions remain typed `UnsupportedFeature` |
+| Additional streams | Explicit TODO error | Parsed and decoded when referenced by supported external file properties; unreferenced stream exposure is not a public API |
+| StartPos | Explicit TODO error | Inline and external values preserved as `Option<u64>` |
+| Anti-items | ID defined but not handled in FilesInfo | Parsed for streamless records |
+| Archive properties | Explicit TODO error | Bounded raw properties retained |
+| Comments | ID defined; no parser handling found | Bounded raw property retained without semantic text decoding; no decoded-comment compatibility claim |
+| Safe member paths | Go `fs.FS` performs path-facing checks | Raw names and mapping are preserved independently; opt-in UTF-8/UTF-16 validators reject traversal, absolute, drive, UNC/device, and NUL paths; no automatic filesystem extraction exists |
+| Unknown unpacked size/EOS | No compliant general model identified | Preserved as `None` and admitted by an explicit method allowlist: LZMA/LZMA2 require codec EOS, Deflate/Deflate64 require a final block, Copy/size-preserving filters derive the bounded input size, and BCJ2 ends at its bounded main stream. LZMA, LZMA2, Deflate, and Deflate64 have positive unknown-size units with truncation checks. PPMd, AES, BZip2, Brotli, LZ4, and Zstandard return typed `UnsupportedFeature` for unknown output; unknown packed size is also typed unsupported |
+
+## Phase 2 structural evidence
+
+- Unit tests cover plain and encoded identifiers, a regular archive with SFX
+  scanning disabled, the exact SFX scan boundary, valid SFX after false
+  candidates that fail checksums or candidate-local limits, every truncation
+  of a minimal envelope, overflowed next-header offsets, unexpected
+  identifiers, unsupported major versions, start/next CRC corruption, header
+  and total-input limits, cancellation, and work-budget exhaustion.
+- The opt-in pinned-reference harness passed the complete stored next-header
+  parser and validated model for 32 logical
+  Go-reference archives: 31 single-file inputs (including `sfx.exe` and
+  encrypted/encoded headers) plus the six joined `multi.7z.001`-`.006`
+  volumes. At the Phase 2 boundary those cases proved only that stored stream
+  descriptors validated; Phase 3/4 evidence below covers decoded headers.
+- Generated tests cover the two audited Go panic classes, exact 100,000-entry
+  handling and rejection above it, every byte-prefix truncation, CRC-correct
+  mutations, checked offset/count overflow, invalid and duplicate graph
+  domains, cycles, deterministic topological schedules, file/substream
+  cardinality, substream sizes/CRCs (including defined zero versus absence),
+  external-property indices, overlapping
+  packed ranges, bounded names/properties, unknown sizes, and malicious
+  LZMA/LZMA2/PPMd/AES declarations.
+
+## Phase 3 decoding evidence
+
+- `crates/un7z/tests/phase3_reference.rs` opens the real archives through the
+  production parser/model/graph/session API. For `copy.7z`, `lzma.7z`,
+  `lzma2.7z`, `delta.7z`, `bcj.7z`, `bcj2.7z`, `ppc.7z`, `arm.7z`,
+  `arm64.7z`, `sparc.7z`, and `sfx.exe`, every streamed member matches `7zz`
+  26.02 byte-for-byte and by RustCrypto SHA-256. Ordered member paths, sizes,
+  and optional CRC values also match the oracle's `-slt` metadata. Declared
+  size equals both outputs; `7zz` exits successfully after its integrity check,
+  Rust `MemberReader::finish` verifies each declared member CRC, and a final
+  natural-order archive verification succeeds.
+- The test inputs are the exact external files identified by SHA-256 in
+  `reference/go-testdata.sha256`; they are not redistributed here. The command
+  is `UN7Z_GO_TESTDATA=<pinned>/testdata cargo test -p un7z --test
+  phase3_reference -- --ignored`.
+- Synthetic tests independently cover reverse-stored topological execution,
+  unsupported method typing, a corrupted Copy member, packed/folder/member CRC
+  scopes, corrupt Copy encoded-header CRC, cumulative nested encoded-header
+  output limits, a stock-`7zz`-accepted two-substream encoded header, exact
+  substream consumption, per-substream CRCs, every-prefix truncation, combined
+  output preflight, solid two-member verification, charged linear traversal
+  of 10,000 solid substreams, natural-order sink finalization before and after
+  a corrupt member boundary, pre-decode per-entry limits across solid folders,
+  unknown-final entry caps, typed rejection of unknown non-final sizes,
+  total-output limits, work exhaustion, cancellation, LZMA/LZMA2 truncation,
+  LZMA2 EOS and prefix truncation, BCJ2 range truncation, proportional x86 BCJ
+  scan work, and filter tail handling.
+- The positive method fixtures cover the exact method/property combinations in
+  those files. They do not establish every possible property combination,
+  encrypted chain, unknown-size stream, or architecture binary.
+
+## Phase 4 decoding and archive-feature evidence
+
+- `crates/un7z/tests/phase4_reference.rs` verifies `deflate.7z`, `bzip2.7z`,
+  `ppmd.7z`, `brotli.7z`, `lz4.7z`, and `zstd.7z`, plus encrypted
+  `aes7z.7z`, `t2.7z`-`t5.7z`, and `7zcracker.7z`, through the production
+  parser/model/graph/decoder API. Deflate, BZip2, PPMd, and the identified AES
+  archives compare ordered names, sizes, optional CRCs, extracted bytes, and
+  SHA-256 with `7zz` 26.02. The three private-method fixtures compare the same
+  common corpus to the independently `7zz`-verified Deflate baseline because
+  stock `7zz` rejects their private method IDs.
+- An opt-in generated oracle creates an encrypted-header
+  BCJ→LZMA2→AES archive from `sfx.exe` with `7zz`; production API metadata,
+  extracted bytes/SHA-256, member CRC, and full verification match `7zz`.
+- Missing-password, wrong encrypted-header password, and wrong encrypted-data
+  password cases return their declared typed errors. Unit tests additionally
+  bound KDF power before hash work, exercise direct and iterated KDF paths,
+  reject non-block-aligned ciphertext, and checkpoint cancellation/work.
+- The six real `multi.7z.001`-`.006` parts verify through the path provider.
+  Memory-provider tests verify exact missing `.006` diagnostics, volume-count
+  limits, aggregate input limits before copying, cancellation before provider
+  callbacks, and deterministic five-part unencrypted `deflate.7z` and encrypted
+  `aes7z.7z` splits.
+- Production-API synthetic tests decode an external Name through
+  AdditionalStreamsInfo and reject trailing bytes. Unit tests cover exact
+  bounded external property application and applicable folder/substream CRCs.
+  A generated Unix `7zz -snl` archive matches symlink mode and stored target
+  bytes. Path regressions cover traversal, absolute, drive, UNC/device, and NUL
+  forms without changing archive entry mapping.
+
+## Phase 5 decoding and corpus evidence
+
+- `crates/un7z/tests/phase5_reference.rs` asks `7zz` 26.02 to author temporary
+  archives for Deflate64, IA64, ARM Thumb, RISC-V, Swap2, and Swap4. The
+  source bytes deliberately trigger each transform; the Deflate64 vector
+  includes a repeated region beyond the 32 KiB Deflate window. Every archive
+  reaches the production parser/model/graph API and matches ordered metadata,
+  exact output, RustCrypto SHA-256, size, and CRC with `7zz`.
+- For each method, a byte in the middle of the declared packed region is
+  corrupted and Rust verification must fail. Deflate64 unit tests also reject
+  every prefix of a valid stored block, malformed LEN/NLEN, trailing packed
+  input, output overruns, a 64 KiB dictionary-limit shortfall, and exhausted
+  work. Filter tests cover short tails, exact properties, nonzero starts, and
+  cancellation through their shared executor control.
+- A generated two-member Deflate64 archive is checked in solid,
+  encrypted-header/data form, and another in non-solid form. Separately
+  generated unencrypted and encrypted Swap4 archives each consist of exactly
+  five `7zz` volume files and verify through `PathVolumeProvider`; their bytes
+  and metadata match the oracle.
+- Unknown-output admission is centralized. Positive unit fixtures cover LZMA
+  EOS, LZMA2 EOS, and Deflate/Deflate64 final blocks, including truncation and
+  applicable trailing-input checks. Methods whose current adapter cannot
+  establish the required end condition are rejected before packed-input
+  decoding rather than guessing a size.
+- Existing Phase 2-4 regressions remain the evidence for malformed headers and
+  graphs, password errors, SFX, metadata, Unicode, symlinks, duplicates, path
+  safety, and the pinned Go corpus. The request's literal `<CORPUS>` and
+  `<MALFORMED_CORPUS>` sets were confirmed unavailable; they are not
+  compatibility evidence.
+
+## Phase 7 Python-binding evidence
+
+- `bindings/python/tests/test_bindings.py` independently constructs a
+  CRC-protected, one-member Copy archive and opens it through the installed
+  `un7z` wheel. It verifies archive-order metadata, exact raw UTF-16 name units,
+  optional size/CRC values, path classification, writer and callback output,
+  returned byte counts, multi-chunk output capped at 8 KiB per callback, and
+  complete archive verification.
+- A corrupted payload reaches the same core and raises structured
+  `ChecksumError`; the native call never reports success. Format, total-input,
+  work, cancellation, and exact missing-volume errors are also asserted with
+  their machine-readable fields. Python provider/writer/callback exception
+  identity, callback-triggered cancellation, and immutable same-archive
+  callback reentrancy have direct regressions.
+- Path opening and a two-part Python `VolumeProvider` exercise the three stable
+  open forms. Every core limit is constructible from Python, password storage
+  is accounted per archive, and an 8 MiB Copy verification confirms another
+  Python thread advances while Rust-only work is detached.
+- On 2026-07-18 the locally built `cp39-abi3` macOS wheel installed into a
+  clean CPython 3.12 virtual environment and all 10 binding tests passed. Its
+  sdist independently rebuilt into a wheel, and that installed wheel passed the
+  same suite. Python 3.9 Linux/macOS/Windows wheel build/install/test jobs are
+  configured but have not been observed locally and are not claimed as passing
+  evidence.
+
+This binding fixture establishes the FFI behavior for Copy only. The adapter
+can dispatch the core's other supported methods, but no additional method row
+gains Python-specific positive evidence from this phase. Encrypted password
+exceptions and every unsupported-method/property combination retain their core
+tests; the Python exception mapping is exhaustive over the stable error kinds
+but is not a substitute for a positive encrypted Python fixture.
+
+## Evidence rule
+
+Phase 6 adds no method row. `crates/un7z/tests/phase6_api.rs` independently
+constructs a CRC-protected Copy archive and exercises the default stable
+surface through bytes, a temporary path, and two memory volumes. It compares
+raw/display names, kind, optional size/CRC, explicit member streaming and
+`finish`, `extract_entry_to`, missing indices, configured limits, archive and
+folder retained-state accounting, per-session password storage, and corrupted
+folder/member CRC failure. The 10,000-substream unit verifies natural-order
+sink traversal with an exact linear work budget. These tests stabilize API
+behavior; they do not broaden any codec claim above.
+
+A Rust row becomes “supported” only after:
+
+1. a named valid fixture reaches the API through the real parser/model/graph;
+2. output bytes and SHA-256, size, CRC, and applicable metadata match an
+   independent oracle;
+3. corrupt/truncated/property-limit cases return the intended typed error;
+4. solid/non-solid and relevant encrypted chains are tested; and
+5. the decoder origin and exact dependency license are recorded.
+
+`7zz` 26.02 could list/test standard bundled methods during the Phase 1 audit.
+That local binary did not decode the bundled private method IDs for Brotli,
+LZ4, or Zstd, so it cannot be the sole oracle for those fixtures without a
+separately reviewed test plugin. This is an oracle limitation, not a Rust
+compatibility result.
