@@ -1294,7 +1294,8 @@ fn crc_correct_mutations_never_bypass_model_validation_by_panicking()
 #[cfg(target_pointer_width = "32")]
 #[test]
 fn rejects_file_count_that_does_not_fit_usize_on_32_bit() -> Result<(), Box<dyn StdError>> {
-    let files = files_info(u64::MAX, &[])?;
+    const FIRST_NON_USIZE_COUNT: u64 = 4_294_967_296;
+    let files = files_info(FIRST_NON_USIZE_COUNT, &[])?;
     let archive = make_archive(&[], &plain_header(None, Some(&files)))?;
     let limits = Limits::builder().max_files(u64::MAX).build();
     assert_eq!(

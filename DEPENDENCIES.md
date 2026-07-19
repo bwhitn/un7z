@@ -16,7 +16,7 @@ following exact direct runtime dependencies; default features are disabled and
 | `bzip2-rs` | 0.1.2 | MIT OR Apache-2.0 | `rustc_1_37` | Safe Rust BZip2 decoder; `https://github.com/paolobarbolini/bzip2-rs` |
 | `brotli-decompressor` | 5.0.3 | BSD-3-Clause OR MIT | `std` | Brotli decoder; `https://github.com/dropbox/rust-brotli-decompressor` |
 | `lz4_flex` | 0.13.1 | MIT | `checked-decode`, `frame`, `safe-decode`, `safe-encode` | Safe checked LZ4-frame decoder; `https://github.com/pseitz/lz4_flex` |
-| `ruzstd` | 0.8.2 | MIT | `std` | Zstandard frame decoder; `https://github.com/KillingSpark/zstd-rs`; 0.8.3 was not selected because it requires Rust 1.87 above this project's MSRV |
+| `ruzstd` | 0.8.1 | MIT | `std` | Zstandard frame decoder; `https://github.com/KillingSpark/zstd-rs`; 0.8.2 uses APIs unavailable on Rust 1.85 and 0.8.3 requires Rust 1.87, so both exceed this project's tested MSRV |
 
 The complete normal/build transitive graph at this revision is:
 
@@ -128,6 +128,10 @@ graph, so this adds no package or runtime dependency and no license exception.
 After that direct-edge change, cargo-deny 0.20.2 again reported `advisories ok,
 bans ok, licenses ok, sources ok` for both the runtime workspace and the
 separately locked fuzz package on 2026-07-19.
+After pinning `ruzstd` 0.8.1 to retain Rust 1.85 compatibility, cargo-deny
+0.20.2 reported the same four successful checks for the runtime workspace,
+fuzz package, and Python binding on 2026-07-19. No transitive dependency
+changed; only the direct `ruzstd` version and checksum changed in each lockfile.
 `cargo-deny`, cargo-fuzz, cargo-llvm-cov, Miri, Rust toolchains, GitHub Actions,
 and `7zz` are development/test tools, not runtime dependencies. The local
 coverage/fuzz audit used cargo-llvm-cov 0.8.7 and cargo-fuzz 0.13.2 installed
@@ -201,7 +205,7 @@ embedded or generated-code licensing facts.
 | PPMd | safe, explicitly memory-bounded permissive implementation | In-tree adaptation of `stangelandcl/ppmd` v0.1.1 admitted; exact MIT provenance in `PROVENANCE.md` |
 | Brotli | safe permissive decoder | `brotli-decompressor` 5.0.3 admitted with unsafe feature disabled |
 | LZ4 | safe permissive decoder | `lz4_flex` 0.13.1 admitted with checked/safe frame features |
-| Zstd | safe permissive decoder | `ruzstd` 0.8.2 admitted with frame-window preflight and dictionaries rejected |
+| Zstd | safe permissive decoder | `ruzstd` 0.8.1 admitted with frame-window preflight and dictionaries rejected |
 | Python FFI | isolated adapter over the stable core | PyO3 0.29.0 admitted in `bindings/python`; no Python dependency enters the core workspace |
 
 ## Development-only 7zz rule
