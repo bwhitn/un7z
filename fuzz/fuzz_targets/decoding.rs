@@ -24,6 +24,27 @@ fn exercise_with_password(data: Vec<u8>, limits: Limits) {
     }
 }
 
+fn exercise_generated(seed: &support::GeneratedDecoderSeed, limits: Limits) -> un7z::Result<()> {
+    let cancellation = CancellationToken::new();
+    let mut budget = WorkBudget::bounded(8 * 1024 * 1024);
+    let archive = match seed.password() {
+        Some(password) => Archive::open_bytes_with_password(
+            seed.archive().to_vec(),
+            limits,
+            password,
+            &cancellation,
+            &mut budget,
+        )?,
+        None => Archive::open_bytes(seed.archive().to_vec(), limits, &cancellation, &mut budget)?,
+    };
+    archive.verify(&cancellation, &mut budget)?;
+    if let Some(expected) = seed.expected() {
+        let actual = archive.extract_entry(0, &cancellation, &mut budget)?;
+        assert_eq!(actual, expected);
+    }
+    Ok(())
+}
+
 fuzz_target!(|data: &[u8]| {
     let limits = Limits::builder()
         .max_header_bytes(64 * 1024)
@@ -38,7 +59,7 @@ fuzz_target!(|data: &[u8]| {
         .max_coder_property_bytes(1024)
         .max_name_bytes_per_entry(4096)
         .max_total_name_bytes(16 * 1024)
-        .max_dictionary_bytes(1024 * 1024)
+        .max_dictionary_bytes(33 * 1024 * 1024)
         .max_entry_output_bytes(1024 * 1024)
         .max_total_output_bytes(2 * 1024 * 1024)
         .max_total_input_bytes(2 * 1024 * 1024)
@@ -46,9 +67,46 @@ fuzz_target!(|data: &[u8]| {
         .max_recursion_depth(8)
         .sfx_scan_limit(64 * 1024)
         .build();
+    if let Some(seed) = support::generated_decoder_seed(data) {
+        let generated = exercise_generated(&seed, limits);
+        assert!(
+            generated.is_ok(),
+            "in-process generated decoder seed was rejected: {generated:?}"
+        );
+        let mutation_selector = data.get(1).copied().map_or(0, |value| value);
+        if let Some(mutated) = seed.mutated(mutation_selector) {
+            exercise(mutated.clone(), limits);
+            exercise_with_password(mutated, limits);
+        }
+        if seed.password().is_some() {
+            exercise(seed.archive().to_vec(), limits);
+        }
+    }
     exercise(data.to_vec(), limits);
     exercise_with_password(data.to_vec(), limits);
     if let Some(archive) = support::wrap_copy_archive(data) {
+        exercise(archive, limits);
+    }
+    if let Some(archive) = support::wrap_unreferenced_additional_archive(data, b"member") {
+        exercise(archive, limits);
+    }
+
+    let external_selector = data.first().copied().map_or(0, |value| value % 4);
+    let arbitrary_folder = match data.get(1..) {
+        Some(bytes) => bytes,
+        None => &[],
+    };
+    let arbitrary_end = arbitrary_folder.len().min(256);
+    let arbitrary_folder = match arbitrary_folder.get(..arbitrary_end) {
+        Some(bytes) => bytes,
+        None => &[],
+    };
+    let folder_definition: &[u8] = if external_selector == 0 {
+        &[1, 1, 0]
+    } else {
+        arbitrary_folder
+    };
+    if let Some(archive) = support::wrap_external_folder_archive(data, folder_definition) {
         exercise(archive, limits);
     }
 

@@ -22,6 +22,12 @@ GitHub Actions runs all targets/features on Linux, macOS, and Windows and runs
 Rust 1.85 separately as the MSRV. Tests use only caller-selected temporary
 paths and make no automatic archive-name-based extraction decisions.
 
+A separate Windows capability job downloads the official stock 7-Zip 26.02
+x64 installer, verifies its release SHA-256 before execution, installs it only
+under the ephemeral runner directory, and runs the ignored `-sni`/`-sns`
+classification probes. The job emits evidence for review; no Windows semantic
+result is claimed until its output has been observed and recorded.
+
 ## 32-bit
 
 The Linux i686 job installs the target and multilib linker, then compiles the
@@ -72,7 +78,7 @@ cargo test -p un7z --lib stock_7zz_ -- --ignored
 ```
 
 No external corpus is required for the stock-method generated matrix. With
-`7zz` 26.02 or newer on `PATH`:
+exact stock `7zz` 26.02 on `PATH` (or `UN7Z_7ZZ` set for the capability probe):
 
 ```text
 cargo test -p un7z --test generated_oracle --all-features --locked -- --ignored
@@ -81,15 +87,47 @@ cargo test -p un7z --test phase4_reference \
   generated_symlink_metadata_and_target_match_oracle \
   --all-features --locked -- --ignored
 cargo test -p un7z --lib stock_7zz_ --all-features --locked -- --ignored
+cargo test -p un7z --test capability_probe \
+  stock_7zz_2602_capability_probe_report \
+  --all-features --locked -- --ignored --nocapture
 ```
 
 The first command generates Copy, LZMA, LZMA2, Delta, BCJ, BCJ2, PPC, ARM,
 ARM64, SPARC, Deflate, BZip2, PPMd, AES, and synthetic-prefix SFX cases in a
 temporary directory. It compares bytes, SHA-256, size, CRC, method, and name,
-checks transforming filter input, and rejects packed-data corruption. The
+checks transforming filter input, and rejects packed-data corruption. Its
+exact-version property test additionally generates 24 archives spanning
+decoder-visible dictionary/model/probability/distance/block properties,
+Deflate levels, filter chains, encrypted variants, and solid layouts. Exact
+coder bytes, method tokens, folder counts, metadata, bytes, SHA-256, CRCs, and
+verification must agree; 7zz-normalized switches cannot silently count. Every
+matrix archive also has corruption, strategic truncation, entry-output,
+work-budget, cancellation, and applicable dictionary-limit checks. CRC-correct
+plain-header mutations exercise shortened logical packed input and
+oversized/empty coder properties; encrypted-header cases keep their negative
+checks without claiming direct access to encrypted inner properties. The
 second command supplies the six Phase 5 methods plus solid, encrypted, and
 five-volume compositions. Generated archives are deleted and never become a
 runtime dependency or committed corpus.
+
+The ignored `stock_7zz_accepts_external_folder_stream` library test checks three
+fully synthetic archives with `7zz` 26.02: one selects the only decoded
+AdditionalStreamsInfo folder output, one selects output index 1 while reusing
+output index 0 for an external Name, and one carries an unreferenced additional
+Copy folder beside a normal main stream. Deterministic non-oracle tests then
+assert exact Rust extraction and verification, additional-only handling,
+packed/folder/substream checksum scopes, AES password states, shared
+output/work/cancellation limits, and plain/encrypted three-part volume behavior.
+No generated archive is retained.
+
+The capability-probe command requires the exact 26.02 oracle and prints
+machine-readable `UN7Z_7ZZ_PROBE` TSV records. It distinguishes authoring,
+oracle reading, Rust reading, and platform applicability; the synthetic
+platform-neutral results are an asserted version-specific baseline. See
+`CAPABILITY_PROBES.md` for fixture hashes and interpretation. Probe candidates
+are discovery evidence, not positive compatibility fixtures. The executable
+override is consumed only by this integration-test harness; production crates
+never inspect it or spawn the oracle.
 
 No result is claimed for the literal `<CORPUS>` or `<MALFORMED_CORPUS>`
 placeholders; the owner confirmed that no such external sets are available.
@@ -118,6 +156,11 @@ cargo llvm-cov --no-clean -p un7z --test phase5_reference \
 cargo llvm-cov --no-clean -p un7z --test phase4_reference \
   --all-features --locked -- \
   generated_symlink_metadata_and_target_match_oracle --ignored
+cargo llvm-cov --no-clean -p un7z --lib --all-features --locked -- \
+  stock_7zz_accepts_external_folder_stream --ignored
+cargo llvm-cov --no-clean -p un7z --test capability_probe \
+  --all-features --locked -- \
+  stock_7zz_2602_capability_probe_report --ignored
 cargo llvm-cov report --ignore-filename-regex 'un7z-cli/'
 ```
 
@@ -133,6 +176,40 @@ evaluated at the core API. In particular, positive generated PPMd raised its
 decoder file from 7.99% to 70.79% lines, and the generated core/Phase 5 filter
 matrices raised the two filter files to 81.29% and 80.51%. These values describe
 this source revision and toolchain, not a permanent threshold.
+
+On 2026-07-19, after staged external-folder resolution and sequential
+unreferenced-additional verification were added, the ordinary all-feature suite
+measured 67.15% core line coverage. Merging the generated-method, Phase 5,
+symlink, stock additional-stream, and exact-version capability-probe paths
+raised line coverage to 83.85% (80.45% regions) after the property matrix's
+negative pass was added. In that merged report `archive.rs` reached 86.27%,
+`metadata.rs` reached 88.62%, and `decode/ppmd.rs` reached 76.59% lines. The
+capability candidates remain diagnostic and do not establish compatibility.
+These results used cargo-llvm-cov 0.8.7, rustc/Homebrew LLVM 22.1.8, exclude
+`un7z-cli`, and remain diagnostic rather than a compatibility threshold.
+
+The excluded fuzz package has a deterministic invariant test for its 20
+in-process decoder/graph seed profiles and eight structured mutation classes:
+
+```text
+cargo test --manifest-path fuzz/Cargo.toml --locked
+```
+
+That test runs the core through the public API, but source percentages from the
+nested package are not merged into the root cargo-llvm-cov figures above.
+LibFuzzer counter/feature observations from the subsequent 100,000-execution
+decoder campaign and 50,000-execution campaigns for the other targets are
+recorded, with their sanitizer limitation, in `FUZZING.md`.
+
+The twentieth profile is a fixed stock-`7zz` 26.02 PPMd order-6/64-KiB vector
+whose exact command and hashes are recorded in `CORPUS.md`. A core unit test
+checks its exact 50-byte output, every strict packed prefix, and output/work
+limits. The public fuzz integration regression additionally checks meaningful
+packed corruption, bounded property mutations, folder CRC failure, dictionary
+and output limits, zero work, and pre-cancellation. Run alone under
+cargo-llvm-cov 0.8.7, that focused core unit executes 64.94% of
+`decode/ppmd.rs` lines; this targeted-only diagnostic is not merged with or
+compared as a percentage delta to the broader 83.85% report above.
 
 ## Fuzzing and benchmarks
 

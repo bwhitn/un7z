@@ -8,7 +8,7 @@ use crate::{
     parse_util::{
         CONTROL_CHUNK_SIZE, ParseControl, check_limit, checked_range, format_error, usize_to_u64,
     },
-    raw::{ParseState, parse_next_header},
+    raw::{ParseState, parse_next_header, parse_next_header_with_external_folders},
     validate::validate_next_header,
 };
 
@@ -449,6 +449,36 @@ pub(crate) fn parse_decoded_next_header(
     }
     let mut state = ParseState::default();
     let raw = parse_next_header(decoded, &mut state, limits, control)?;
+    validate_next_header(raw, envelope, archive_bytes, limits, control)
+}
+
+pub(crate) fn parse_next_header_from_external_folders(
+    header_bytes: &[u8],
+    data_index: u64,
+    folder_bytes: &[u8],
+    envelope: HeaderEnvelope,
+    archive_bytes: &[u8],
+    limits: Limits,
+    control: &mut ParseControl<'_>,
+) -> Result<ParsedNextHeader> {
+    let header_size = usize_to_u64(
+        header_bytes.len(),
+        "external-folder header size is not representable as u64",
+    )?;
+    check_limit(
+        header_size,
+        limits.max_header_bytes(),
+        LimitKind::HeaderBytes,
+    )?;
+    let mut state = ParseState::default();
+    let raw = parse_next_header_with_external_folders(
+        header_bytes,
+        data_index,
+        folder_bytes,
+        &mut state,
+        limits,
+        control,
+    )?;
     validate_next_header(raw, envelope, archive_bytes, limits, control)
 }
 

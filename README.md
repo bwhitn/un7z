@@ -10,7 +10,8 @@ container format.
 > ARM Thumb, RISC-V, Swap2, Swap4, and
 > AES-256-CBC/SHA-256 slices in
 > [COMPATIBILITY.md](COMPATIBILITY.md). It resolves supported encoded/encrypted
-> headers and external metadata and reads bounded sequential volumes. Member
+> headers, external folder definitions, and external metadata, and reads bounded
+> sequential volumes. Member
 > and archive APIs enforce applicable CRCs; streaming callers must explicitly
 > call `finish()`. This is not a general “all 7z” compatibility claim.
 
@@ -43,15 +44,24 @@ Phase 4 adds bounded adapters for Deflate, BZip2, Brotli, LZ4, and Zstandard;
 an in-tree safe PPMd7 adaptation; RustCrypto AES-256-CBC/SHA-256 with
 per-archive zeroized passwords; encoded/encrypted headers; supported external
 Name/time/attribute/StartPos streams; Unix-mode/symlink metadata; and bounded
-path/memory sequential volume providers. Unsupported methods, external folder
-definitions, semantic comment decoding, and Zstandard dictionaries remain
-explicit typed boundaries.
+path/memory sequential volume providers. Main-stream folder definitions stored
+in AdditionalStreamsInfo are resolved through a bounded decode-and-reparse
+stage with exact consumption and CRC enforcement. `Archive::verify` also walks
+every AdditionalStreamsInfo folder, including unreferenced outputs, before the
+main streams; it verifies packed, folder, and logical-substream CRCs while
+sharing the operation's limits, password state, work budget, and cancellation
+token. Unsupported methods, semantic comment decoding, and Zstandard
+dictionaries remain explicit typed boundaries.
 
 Phase 5 adds an in-tree bounded Deflate64 decoder and size-preserving IA64,
 ARM Thumb, RISC-V, Swap2, and Swap4 filters without adding a runtime
 dependency. Generated opt-in tests compare exact bytes, SHA-256, size, CRC,
 and metadata with `7zz`, exercise corruption and encrypted solid/non-solid
-archives, and use real five-part encrypted and unencrypted volume sets. The
+archives, and use real five-part encrypted and unencrypted volume sets. An
+exact-version 24-archive property matrix additionally exercises bounded
+dictionary/model variants, filter chains, encryption, and solid layouts while
+asserting the serialized decoder configuration and rejecting corruption,
+truncation, malicious property lengths, and operation limits. The
 literal `<CORPUS>` and `<MALFORMED_CORPUS>` sets were confirmed unavailable,
 so no claim is made for them.
 
@@ -127,6 +137,8 @@ CLI so they are not exposed through process arguments.
 - [PROVENANCE.md](PROVENANCE.md) records exact source origins and decoder
   provenance.
 - [CORPUS.md](CORPUS.md) records what corpus material was actually inspected.
+- [CAPABILITY_PROBES.md](CAPABILITY_PROBES.md) records corpus-free black-box
+  stock-`7zz` feature probes and their interpretation limits.
 - [AGENTS.md](AGENTS.md) records repository-wide implementation and review
   rules.
 

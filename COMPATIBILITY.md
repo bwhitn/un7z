@@ -6,7 +6,8 @@
 claim; decoding is implemented only for the rows explicitly marked supported
 below.** The core locates regular and bounded
 SFX signatures; verifies stored, encoded, and encrypted header layers;
-validates arbitrary coder graphs; resolves supported external metadata;
+validates arbitrary coder graphs; resolves supported external folder records
+and metadata;
 assembles bounded sequential volumes; and exposes CRC-finalizing member
 extraction and archive verification. The CLI implements `list`, `cat` to
 stdout, and `verify`; it never chooses a filesystem destination from archive
@@ -43,6 +44,23 @@ the positive source was changed in the packed representation. This generated
 evidence does not extend to the private Brotli/LZ4/Zstd identifiers that stock
 `7zz` cannot author or decode.
 
+An additional exact-26.02 property matrix generates 24 temporary archives. It
+positively covers 64 KiB, 1 MiB, and 4 MiB LZMA/LZMA2 dictionaries; non-default
+LZMA `lc`/`lp`/`pb`; PPMd orders 2 and 16 with 1 MiB and 4 MiB models; Delta
+distances 1, 4, and 256; BZip2 100 KiB and 900 KiB blocks; distinct Deflate
+levels 1 and 9; BCJ/PPC/Delta-to-LZMA2 chains; LZMA, LZMA2-chain, and PPMd data
+encryption; encrypted headers; and four-entry solid/non-solid layouts including
+an empty member. The harness asserts exact serialized coder properties or
+stream headers, exact oracle method tokens, graph composition, folder counts,
+metadata, bytes, SHA-256, CRC, and full verification. This is expanded positive
+evidence. The same 24 cases now reject packed corruption, strategic physical
+truncation, entry-output/work/cancellation limits, and applicable dictionary
+limits. Plain headers additionally receive CRC-correct shortened packed-size
+declarations plus oversized and empty coder-property declarations; BZip2 block
+headers are invalidated separately. Encrypted-header inner properties are not
+pretended to be directly mutable, but those cases retain corruption,
+truncation, password, resource, work, and cancellation coverage.
+
 | Method/filter | Pinned Go reference | Rust status | Rust differential evidence |
 | --- | --- | --- | --- |
 | Copy | Registered; bundled fixture | Supported for validated graphs | `copy.7z`; corrupted-member, packed/folder/member CRC, output/work/cancellation regressions |
@@ -57,7 +75,7 @@ evidence does not extend to the private Brotli/LZ4/Zstd identifiers that stock
 | SPARC | Registered; bundled fixture | Supported | `sparc.7z`; exact bytes/SHA-256/member CRC |
 | Deflate | Registered; bundled fixture | Supported as raw Deflate with bounded 32 KiB working-memory charge and final-block unknown-size termination | `deflate.7z`; exact `7zz` bytes/SHA-256/size/CRC/metadata plus positive unknown-size and every-prefix truncation, output, dictionary, work, and cancellation tests |
 | BZip2 | Registered; bundled fixture | Supported with block-size preflight and bounded adapter | `bzip2.7z`; exact `7zz` bytes/SHA-256/size/CRC/metadata plus malformed header, memory, and cancellation tests |
-| PPMd | Registered; bundled fixture | Supported for PPMd7 variant H with declared output size | `ppmd.7z`; exact `7zz` bytes/SHA-256/size/CRC/metadata plus property, malicious-memory, truncation, work, and cancellation tests |
+| PPMd | Registered; bundled fixture | Supported for PPMd7 variant H with declared output size | `ppmd.7z`; exact `7zz` bytes/SHA-256/size/CRC/metadata plus property and malicious-memory tests. A fixed stock-`7zz` 26.02 order-6/64-KiB packed vector adds exact output, every-prefix truncation, meaningful corruption, dictionary/output/work, and cancellation evidence |
 | AES-256-CBC/SHA-256 | Registered; encrypted fixtures | Supported for declared-size AES-256-CBC streams and bounded direct/iterated 7z SHA-256 KDF | `aes7z.7z`, `t2.7z`-`t5.7z`, `7zcracker.7z`; generated header-encrypted and data-encrypted Copy exact `7zz` differentials with corruption and typed missing/wrong-password states; generated BCJ→LZMA2→AES encrypted-header differential; block truncation and KDF limit/work/cancellation tests |
 | Brotli | Registered; bundled private-method fixture | Supported, including the optional private 16-byte 7-Zip prefix | `brotli.7z` verifies and matches the common `deflate.7z` corpus bytes/SHA-256/metadata; stock `7zz` 26.02 rejects this private method ID |
 | LZ4 | Registered; bundled private-method fixture | Supported for checked LZ4 frames without external dictionaries | `lz4.7z` verifies and matches the common `deflate.7z` corpus bytes/SHA-256/metadata; stock `7zz` 26.02 rejects this private method ID |
@@ -87,14 +105,36 @@ evidence does not extend to the private Brotli/LZ4/Zstd identifiers that stock
 | Windows/POSIX attributes and modes | Parsed/mapped | Inline and external raw Windows attributes are preserved; Unix-extension high bits expose a POSIX mode without applying it to a filesystem |
 | Symlink metadata | Mode mapping exists; no bundled corpus assertion | Unix-extension mode identifies symlinks and member bytes preserve the target; a generated `7zz -snl` archive matches mode and target bytes |
 | Duplicate names | Go `fs.FS` layer marks duplicates | Preserved in archive order as distinct entries; there is no automatic extraction/collision policy |
-| External folder/name/time/attribute streams | Explicit TODO errors | Referenced Name/time/attribute/StartPos streams are decoded from AdditionalStreamsInfo with exact consumption and CRC/limit enforcement; external folder definitions remain typed `UnsupportedFeature` |
-| Additional streams | Explicit TODO error | Parsed and decoded when referenced by supported external file properties; unreferenced stream exposure is not a public API |
+| External folder/name/time/attribute streams | Explicit TODO errors | Supported for main-stream folder definitions and referenced Name/time/attribute/StartPos data. `DataIndex` selects a decoded AdditionalStreamsInfo folder output; folder definitions are staged, decoded, checksum-verified, reparsed for the exact declared folder count, consumed exactly, and fully revalidated. Synthetic one- and two-folder forms are accepted by stock `7zz` 26.02; encrypted, truncation, trailing-byte, index, CRC, coder-count, and output-limit regressions exercise the production API |
+| Additional streams | Explicit TODO error | Parsed and decoded once per folder when referenced by external folder definitions or supported external file properties. `Archive::verify` sequentially decodes every folder, including unreferenced folders, and verifies packed, folder, and logical-substream CRCs while sharing limits and operation control with main streams. Unreferenced stream bytes are not exposed by the public API |
 | StartPos | Explicit TODO error | Inline and external values preserved as `Option<u64>` |
 | Anti-items | ID defined but not handled in FilesInfo | Parsed for streamless records |
 | Archive properties | Explicit TODO error | Bounded raw properties retained |
-| Comments | ID defined; no parser handling found | Bounded raw property retained without semantic text decoding; no decoded-comment compatibility claim |
+| Comments | ID defined; no parser handling found | Bounded raw property retained without semantic text decoding. A synthetic file-comment candidate makes stock `7zz` 26.02 emit `Unsupported feature`; an archive-property candidate is ignored without a listed Comment field. Neither is positive semantic-comment evidence |
 | Safe member paths | Go `fs.FS` performs path-facing checks | Raw names and mapping are preserved independently; opt-in UTF-8/UTF-16 validators reject traversal, absolute, drive, UNC/device, and NUL paths; no automatic filesystem extraction exists |
-| Unknown unpacked size/EOS | No compliant general model identified | Preserved as `None` and admitted by an explicit method allowlist: LZMA/LZMA2 require codec EOS, Deflate/Deflate64 require a final block, Copy/size-preserving filters derive the bounded input size, and BCJ2 ends at its bounded main stream. LZMA, LZMA2, Deflate, and Deflate64 have positive unknown-size units with truncation checks. PPMd, AES, BZip2, Brotli, LZ4, and Zstandard return typed `UnsupportedFeature` for unknown output; unknown packed size is also typed unsupported |
+| Unknown unpacked size/EOS | No compliant general model identified | Preserved as `None` and admitted by an explicit method allowlist: LZMA/LZMA2 require codec EOS, Deflate/Deflate64 require a final block, Copy/size-preserving filters derive the bounded input size, and BCJ2 ends at its bounded main stream. LZMA, LZMA2, Deflate, and Deflate64 have positive unknown-size units with truncation checks. PPMd, AES, BZip2, Brotli, LZ4, and Zstandard return typed `UnsupportedFeature` for unknown output; unknown packed size is also typed unsupported. Stock `7zz` 26.02 rejects the synthetic unknown-Copy-root candidate with `Data Error` and rejects unknown packed/non-final candidates with `Headers Error`; Rust's safe Copy extension is not credited as oracle parity |
+
+## Stock 7zz capability-probe evidence
+
+`crates/un7z/tests/capability_probe.rs` emits structured, tab-separated
+black-box outcomes for exact stock `7zz` 26.02. Its platform-neutral baseline
+is asserted and its deterministic synthetic fixture hashes are recorded in
+`CAPABILITY_PROBES.md`.
+
+The current run does not identify a new confirmed decoder gap. The alternative
+Copy-coder candidate is rejected as unsupported by both implementations;
+unknown packed and non-final sizes are rejected by `7zz` and remain typed Rust
+boundaries; and raw `AES256CBC` authoring fails with `E_NOTIMPL`. A `-snl`
+archive succeeds in both implementations. `-snh` produces an archive both can
+verify, but stock extraction on the observed macOS host does not recreate a
+hard-link relationship. A checksum-pinned exact-26.02 Windows CI probe is now
+configured for `-sni` and `-sns`, but its output remains unobserved and no
+Windows metadata claim is inferred before that run.
+
+Candidate acceptance, warning, or rejection is not itself a format-validity
+claim. No capability row moves to supported without an accepted fixture,
+semantic oracle evidence, corruption/limit coverage, and acceptable
+provenance.
 
 ## Phase 2 structural evidence
 
@@ -147,8 +187,9 @@ evidence does not extend to the private Brotli/LZ4/Zstd identifiers that stock
   LZMA2 EOS and prefix truncation, BCJ2 range truncation, proportional x86 BCJ
   scan work, and filter tail handling.
 - The positive method fixtures cover the exact method/property combinations in
-  those files. They do not establish every possible property combination,
-  encrypted chain, unknown-size stream, or architecture binary.
+  those files and the bounded generated property matrix described above. They
+  still do not establish every possible property combination, encrypted chain,
+  unknown-size stream, or architecture binary.
 
 ## Phase 4 decoding and archive-feature evidence
 
@@ -175,6 +216,20 @@ evidence does not extend to the private Brotli/LZ4/Zstd identifiers that stock
 - Production-API synthetic tests decode an external Name through
   AdditionalStreamsInfo and reject trailing bytes. Unit tests cover exact
   bounded external property application and applicable folder/substream CRCs.
+  Separate fixtures stage main folder definitions in one of one or two decoded
+  AdditionalStreamsInfo folder outputs, reuse another output for an external
+  Name, and extract the member through the public API. Stock `7zz` 26.02 accepts
+  both serialized forms. Regressions cover every archive prefix, exact external
+  definition consumption, invalid output indices, packed/folder/substream CRC
+  scopes, pre-decode main/additional packed-range overlap, combined coder/output
+  limits, and encrypted missing/wrong/correct password paths.
+  A separate accepted synthetic form contains an unreferenced
+  AdditionalStreamsInfo Copy folder. `Archive::verify` covers that form both
+  with and without main streams, exact packed/folder/substream checksum scopes,
+  an AES folder's missing/wrong/correct password states, a cumulative
+  additional-plus-main output limit, work exhaustion, cancellation, and plain
+  and encrypted three-part memory volumes with packed bytes crossing a part
+  boundary. Stock `7zz` 26.02 accepts the serialized form.
   A generated Unix `7zz -snl` archive matches symlink mode and stored target
   bytes. Path regressions cover traversal, absolute, drive, UNC/device, and NUL
   forms without changing archive entry mapping.

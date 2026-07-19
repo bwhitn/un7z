@@ -99,6 +99,56 @@ control.
 The installed `7zz` 26.02 executable was used only to inspect/test corpus
 behavior. No official 7-Zip or p7zip source was obtained or inspected.
 
+The 2026-07-19 external-folder follow-up adapts only the serialized external
+flag and `DataIndex` grammar from the pinned Go `types.go:readUnpackInfo` at
+`dcfc72a0ee9f527c55521f44ffdf1c31b732e256`, under its BSD-3-Clause license.
+That Go revision returns a TODO error for the feature, so the bounded staged
+parse/decode/reparse architecture is original Rust work. Black-box tests with
+the `7zz` 26.02 executable established that `DataIndex` addresses decoded
+AdditionalStreamsInfo folder outputs rather than their logical substreams;
+one- and two-folder synthetic archives were accepted. No oracle source code was
+obtained, inspected, copied, or adapted.
+
+The 2026-07-19 capability-probe suite is original integration-test and fixture
+construction code. Its CRC-correct Copy candidates reuse the already recorded
+7z container grammar; its classifications come only from executing the stock
+`7zz` 26.02 binary and the public Rust API. No oracle source, SDK, SFX stub, or
+binary fixture was inspected, copied, adapted, or retained. Deterministic
+candidate hashes and the limits of each behavioral inference are recorded in
+`CAPABILITY_PROBES.md`.
+
+The Windows CI extension uses the official `ip7z/7zip` 26.02 release asset
+`7z2602-x64.exe`, whose release metadata reports SHA-256
+`6745fa76dc2ea031596d8678f6f6b99c3c1b435b4164a63485adbbc7b8d82ef0`.
+The workflow verifies that digest before black-box execution and retains
+neither the installer nor an authored archive. The test-only executable-name
+override and Windows/standalone banner classification are original Rust test
+code licensed MIT OR Apache-2.0; no oracle source was inspected or adapted.
+
+The 2026-07-19 generated property matrix is original integration-test code over
+the existing public and test-only validated-model APIs. Method options are sent
+to the installed stock `7zz` 26.02 executable and validated only through its
+black-box listing/extraction behavior plus the already documented 7z coder
+properties parsed by Rust. No oracle source, SDK code, binary archive, or new
+algorithm implementation was inspected, copied, retained, or redistributed.
+
+The 2026-07-19 in-process decoder seed generator and structured mutator are
+original fuzz/test code over the already recorded 7z container, coder-property,
+graph, CRC, and direct AES-KDF layouts. Minimal uncompressed LZMA2, Deflate,
+Deflate64, LZ4-frame, and Zstandard-frame records were independently serialized
+for bounded test payloads; they are not compression APIs and are not compiled
+into the runtime crates. Test-only AES-CBC encryption is delegated to the same
+RustCrypto `aes` 0.9.1 and `cbc` 0.2.1 crates used by the core dependency graph,
+with a fixed public fuzz password. The raw LZMA vector retains its documented
+XZ Utils 5.8.3 command provenance. The BZip2 vector was produced from the
+synthetic text `hello\n` by `/usr/bin/bzip2` 1.0.8. The ten-byte Brotli vector
+is the `hello\n` regression in the published `brotli-decompressor` 5.0.3
+`src/reader.rs`, licensed BSD-3-Clause OR MIT. The 49-byte PPMd vector was
+produced from project-authored text by a black-box stock `7zz` 26.02 command;
+no 7-Zip or p7zip source was inspected. Exact commands and vector hashes are
+recorded in `CORPUS.md`; no complete archive, external corpus item, oracle
+source, or secret was copied into the fuzz package.
+
 ## Reference observations that affect the Rust design
 
 These are behavioral audit facts, not inherited implementation choices:
@@ -143,7 +193,7 @@ are offered under MIT OR Apache-2.0.
 | --- | --- | --- | --- | --- |
 | `crates/un7z/src/bounded.rs`: `BoundedReader::read_7z_uint` | `types.go`: `readUint64` | `dcfc72a0ee9f527c55521f44ffdf1c31b732e256` | Adapted 7z variable-integer field interpretation; rewritten as a bounded, fallible, allocation-free Rust reader | BSD-3-Clause upstream notice; Rust changes MIT OR Apache-2.0 |
 | `crates/un7z/src/parser.rs`: `parse_raw_signature_header`, `parse_archive_header` | `struct.go`: `signatureHeader`, `startHeader`; `reader.go`: `findSignature`, `Reader.init` | `dcfc72a0ee9f527c55521f44ffdf1c31b732e256` | Adapted signature/start-header layout, relative next-header range, CRC layers, and SFX behavior; independently redesigned with typed errors, configurable bounds, candidate isolation, checked arithmetic, cancellation, and work accounting | BSD-3-Clause upstream notice; Rust changes MIT OR Apache-2.0 |
-| `crates/un7z/src/raw.rs`: raw property, folder, PackInfo, UnpackInfo, SubStreamsInfo, StreamsInfo, FilesInfo, Header parsers | `types.go`: `readBool`, `readOptionalBool`, `readCRC`, `readSizes`, `readPackInfo`, `readCoder`, `readFolder`, `readUnpackInfo`, `readSubStreamsInfo`, `readStreamsInfo`, `readFilesInfo`, `readHeader` | `dcfc72a0ee9f527c55521f44ffdf1c31b732e256` | Adapted serialized field ordering and ID grammar; rewritten as borrowed Rust syntax records with bounded reads, exact outer consumption, global count/property limits, checked totals, fallible allocation, cancellation, and typed unsupported features | BSD-3-Clause upstream notice; Rust changes MIT OR Apache-2.0 |
+| `crates/un7z/src/raw.rs`: raw property, folder, PackInfo, UnpackInfo, SubStreamsInfo, StreamsInfo, FilesInfo, Header parsers | `types.go`: `readBool`, `readOptionalBool`, `readCRC`, `readSizes`, `readPackInfo`, `readCoder`, `readFolder`, `readUnpackInfo`, `readSubStreamsInfo`, `readStreamsInfo`, `readFilesInfo`, `readHeader` | `dcfc72a0ee9f527c55521f44ffdf1c31b732e256` | Adapted serialized field ordering and ID grammar, including the external-folder flag and `DataIndex`; rewritten as borrowed Rust syntax records with bounded reads, exact outer consumption, global count/property limits, checked totals, fallible allocation, cancellation, and typed unsupported features | BSD-3-Clause upstream notice; Rust changes MIT OR Apache-2.0 |
 | `crates/un7z/src/validate.rs`: file/substream mapping and inherited CRC handling | `reader.go`: `Reader.init`; `struct.go`: `streamsInfo.FileFolderAndSize`; `types.go`: `readSubStreamsInfo` | `dcfc72a0ee9f527c55521f44ffdf1c31b732e256` | Adapted archive-order mapping and substream semantics; replaced unchecked/raw indexing and zero sentinels with exact cardinality validation and `Option` values | BSD-3-Clause upstream notice; Rust changes MIT OR Apache-2.0 |
 | `crates/un7z/src/validate.rs`: LZMA2, PPMd, and AES property resource validation | `internal/lzma2/reader.go:NewReader`, `internal/ppmd/reader.go:NewReader`, `internal/aes7z/reader.go:NewReader` | `dcfc72a0ee9f527c55521f44ffdf1c31b732e256` | Adapted property layouts and LZMA2 dictionary/AES salt-IV-KDF calculations for structural and resource-limit validation before decoder construction | BSD-3-Clause upstream notice; Rust changes MIT OR Apache-2.0 |
 | `crates/un7z/src/decode/filters.rs`: Delta, x86 BCJ, PPC, ARM, ARM64, SPARC | `internal/delta/reader.go`; `internal/bra/{bcj,ppc,arm,arm64,sparc}.go` | `dcfc72a0ee9f527c55521f44ffdf1c31b732e256` | Adapted decoder transforms into checked, in-place safe Rust with bounded property parsing and cancellation/work checkpoints | BSD-3-Clause upstream notice; Rust changes MIT OR Apache-2.0 |
@@ -166,7 +216,12 @@ are offered under MIT OR Apache-2.0.
 | Raw UTF-16/property validators | Original safe Rust in `crates/un7z/src/validate.rs`, with serialized property layouts covered by the adaptation rows | Pinned Go grammar and project resource/path requirements | MIT OR Apache-2.0 plus upstream notice for adapted layouts | Two-pass name limits precede allocation; exact child consumption; external indices checked; raw code units retained |
 | CRC-32 | Original `crates/un7z/src/checksum.rs` | CRC-32/ISO-HDLC reflected polynomial `0xEDB88320`; table generated at compile time, with no external table or implementation copied | MIT OR Apache-2.0 | Standard `123456789` vector (`0xCBF43926`), empty vector, incremental equivalence, and corrupt start/next-header tests |
 | Folder executor and output APIs | Original `crates/un7z/src/execute.rs` and `archive.rs`, using the validated model | Requirements-driven linear port/binding executor, CRC-finalizing session design, caller-owned natural-order sink, and ordered reconstruction of encoded-header substreams; no 7-Zip or p7zip implementation source was consulted | MIT OR Apache-2.0 | Reverse-stored Copy chain test, BCJ2 corpus graph, packed/folder/member CRC regressions, reader/sink finish regressions, linear solid traversal, known/unknown entry caps, output/work/cancellation limits, generated multi-substream header accepted by stock `7zz` 26.02, and separate negative multi-folder oracle evidence |
-| External metadata resolver | Original `crates/un7z/src/metadata.rs` over Phase 2's adapted serialized property layouts | Requirements-driven decoding of validated AdditionalStreamsInfo substreams followed by exact bounded application to file records | MIT OR Apache-2.0 plus upstream notice for adapted layouts | Synthetic production-API external Name tests, exact/trailing-byte rejection, stream/folder CRC checks, and limits for decoded header/name bytes |
+| Stock-7zz capability-probe harness | Original `crates/un7z/tests/capability_probe.rs` over the already recorded serialized container grammar | Project evidence rules and black-box execution of exact stock `7zz` 26.02; no oracle implementation source consulted | MIT OR Apache-2.0 plus the upstream notice for already adapted serialized grammar | Exact-version structured author/read/Rust results for comment candidates, alternative coder candidate, unknown sizes, raw AES authoring, links, and platform metadata switches; deterministic hashes in `CAPABILITY_PROBES.md` |
+| Stock-7zz method/property matrix | Original additions to `crates/un7z/tests/generated_oracle.rs` over the already recorded coder-property grammar | Project differential-evidence rules and black-box execution of exact stock `7zz` 26.02; no oracle implementation source consulted | MIT OR Apache-2.0 plus the upstream notice for already adapted serialized grammar | 24 ephemeral archives; exact LZMA/LZMA2/PPMd/Delta properties, BZip2 packed headers, Deflate level distinction, filter/AES graphs, solid folder shapes, metadata, bytes, SHA-256, CRC-finalized verification, packed corruption, physical/logical truncation, CRC-correct property mutations, and resource/work/cancellation limits |
+| Stock-7zz PPMd positive vector | Original test integration in `crates/un7z/src/decode/ppmd.rs` and `fuzz/fuzz_targets/support.rs`; 49 packed bytes produced from project-authored text | Black-box `7-Zip (z) 26.02 (x64)` invocation `7zz a -t7z -m0=PPMd:o6:mem64k -mhc=off -mhe=off -bd -bb0`; no 7-Zip or p7zip source inspected | Project-authored input and original Rust test code MIT OR Apache-2.0; executable output retained only as a test vector | Exact command, properties, CRC, decoded/packed/archive SHA-256 values, and non-retention record in `CORPUS.md`; exact decode, every packed prefix, corruption, dictionary/output/work, and cancellation regressions |
+| In-process decoder fuzz seeds and structured mutator | Original `fuzz/fuzz_targets/support.rs`, `decoding.rs`, and `fuzz/tests/generated_seeds.rs` over already recorded serialized grammar | Project hostile-input requirements; fixed vectors and test-only primitive origins recorded above; no new decoder implementation or runtime API | MIT OR Apache-2.0 plus the upstream notice for adapted 7z/AES serialization; embedded Brotli vector under BSD-3-Clause OR MIT; RustCrypto crates MIT OR Apache-2.0 | 20 verified positive profiles, eight bounded mutation classes, deterministic exhaustive generator test, and fresh coverage-guided campaigns without an external corpus |
+| Additional-stream processor, verifier, and external metadata resolver | Original `crates/un7z/src/metadata.rs` and `archive.rs` orchestration over Phase 2's adapted serialized property layouts | Requirements-driven sequential decoding of validated AdditionalStreamsInfo folders, verification of every logical substream, and exact bounded application to file records; no external decoder or container implementation copied | MIT OR Apache-2.0 plus upstream notice for adapted layouts | Synthetic production-API external Name tests; exact/trailing-byte rejection; referenced and unreferenced packed/folder/substream CRC checks; AES password states; shared output/work/cancellation limits; crossed three-part memory volumes; and limits for decoded header/name bytes |
+| Staged external-folder resolver | Original staging and orchestration in `model.rs`, `validate.rs`, `parser.rs`, `metadata.rs`, and `archive.rs`, over the adapted `types.go:readUnpackInfo` flag/`DataIndex` grammar recorded above | Project hostile-input requirements plus black-box `7zz` 26.02 behavior; the pinned Go revision does not implement resolution | MIT OR Apache-2.0 plus the upstream BSD-3-Clause notice for adapted serialized grammar | Production extraction with one and two AdditionalStreamsInfo folder outputs; stock-oracle acceptance of both forms; external Name reuse; exact-consumption, prefix-truncation, index, pre-decode packed-range overlap, packed/folder/substream CRC, combined count/output-limit, and encrypted password-state regressions |
 | Sequential volume assembly | Original `crates/un7z/src/volume.rs` and archive integration | Project `VolumeProvider` requirements plus the pinned reference's observed `.001` naming behavior; no provider or concatenation code copied | MIT OR Apache-2.0 | Memory/path providers, total-byte and volume-count preflight, cancellation/work checks between reads, exact missing suffix, six-part fixture, five-part encrypted fixture, and cross-volume packed data |
 | Safe path and symlink metadata policy | Original `crates/un7z/src/path.rs` and `model.rs` accessors | Project security requirements and platform path syntax; no extraction code or external implementation copied | MIT OR Apache-2.0 | Traversal/absolute/drive/UNC/device/NUL tests over UTF-16 and a generated `7zz -snl` symlink metadata oracle |
 

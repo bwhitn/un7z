@@ -533,7 +533,7 @@ fn validates_external_property_reference_and_definition_map() -> Result<(), Box<
         &[
             (0x0e, vec![0x80]),
             (0x11, vec![1, 0]),
-            (0x12, vec![1, 1, 1]),
+            (0x12, vec![1, 1, 0]),
         ],
     )?;
     let mut header = Vec::from([0x01, 0x03]);
@@ -562,7 +562,7 @@ fn validates_external_property_reference_and_definition_map() -> Result<(), Box<
     }) else {
         return Err("external creation-time property is missing".into());
     };
-    assert_eq!(time_property.data_index(), 1);
+    assert_eq!(time_property.data_index(), 0);
     assert_eq!(time_property.defined_entries(), &[true]);
     Ok(())
 }
@@ -674,15 +674,73 @@ fn validates_encoded_header_stream_descriptor_without_claiming_decode()
 }
 
 #[test]
-fn external_folder_definition_is_a_typed_unsupported_feature() -> Result<(), Box<dyn StdError>> {
+fn external_folder_definition_requires_additional_streams() -> Result<(), Box<dyn StdError>> {
     let next_header = [0x01, 0x04, 0x06, 0, 1, 0x09, 0, 0, 0x07, 0x0b, 1, 1, 0];
     let archive = make_archive(&[], &next_header)?;
     assert_eq!(
         parse(&archive, Limits::default())
             .err()
             .map(|error| error.kind()),
-        Some(ErrorKind::UnsupportedFeature)
+        Some(ErrorKind::Format)
     );
+    Ok(())
+}
+
+#[test]
+fn external_folder_definition_is_staged_after_validating_additional_streams()
+-> Result<(), Box<dyn StdError>> {
+    let additional = folder_streams(
+        0,
+        &[3],
+        &[CoderSpec {
+            method: &[0],
+            inputs: 1,
+            outputs: 1,
+            properties: None,
+        }],
+        &[],
+        &[],
+        &[3],
+        None,
+        None,
+    )?;
+    let mut main = Vec::from([0x06]);
+    push_uint(&mut main, 3)?;
+    push_uint(&mut main, 1)?;
+    main.extend_from_slice(&[0x09, 0x00, 0x00, 0x07, 0x0b, 1, 1, 0, 0x0c, 0, 0, 0]);
+    let mut header = Vec::from([0x01, 0x03]);
+    header.extend_from_slice(&additional);
+    header.push(0x04);
+    header.extend_from_slice(&main);
+    header.push(0);
+    let archive = make_archive(&[1, 1, 0], &header)?;
+    let parsed = parse(&archive, Limits::default())?;
+    assert!(matches!(
+        parsed.next_header(),
+        ParsedNextHeader::PendingExternalFolders(_)
+    ));
+    Ok(())
+}
+
+#[test]
+fn external_folders_cannot_self_source_or_appear_in_encoded_descriptor()
+-> Result<(), Box<dyn StdError>> {
+    let streams = [0x06, 0, 1, 0x09, 0, 0, 0x07, 0x0b, 1, 1, 0];
+    for prefix in [0x03, 0x17] {
+        let mut next_header = if prefix == 0x03 {
+            Vec::from([0x01, prefix])
+        } else {
+            Vec::from([prefix])
+        };
+        next_header.extend_from_slice(&streams);
+        let archive = make_archive(&[], &next_header)?;
+        assert_eq!(
+            parse(&archive, Limits::default())
+                .err()
+                .map(|error| error.kind()),
+            Some(ErrorKind::Format)
+        );
+    }
     Ok(())
 }
 

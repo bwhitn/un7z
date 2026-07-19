@@ -292,10 +292,52 @@ Sequential path/memory volume assembly, split packed data, encrypted data, and
 per-archive password state are implemented under the limits above. Supported
 external Name, creation/access/modification time, Windows attribute, and
 StartPos streams are decoded from AdditionalStreamsInfo with exact consumption.
-External folder definitions, semantic comment decoding, Zstandard dictionaries,
+Explicit verification also decodes all AdditionalStreamsInfo folders, including
+unreferenced ones, before main streams. It checks packed, folder, and logical
+substream CRCs, drops one additional folder before starting the next, and shares
+the total-output, dictionary, KDF, password, work, and cancellation state with
+main-stream verification.
+External folder definitions add a staged hostile-input boundary: the stored
+header copy is header-bounded; AdditionalStreamsInfo and its folder-output
+`DataIndex` are validated before decode; packed, folder, and substream CRCs are
+checked; decoding is charged to output/dictionary/work/cancellation limits; and
+the selected output must parse the exact declared folder count with no trailing
+bytes. The complete header is then reparsed and revalidated so graph and count
+limits cover both stages. Semantic comment decoding, Zstandard dictionaries,
 and methods explicitly marked unsupported in `COMPATIBILITY.md` return typed
 errors or remain preserved bounded raw metadata; they are not compatibility
 claims.
+
+The opt-in stock-`7zz` capability suite executes only in integration tests and
+uses unique temporary paths. Its result classifications never enter runtime
+feature selection. Oracle acceptance without semantic evidence does not relax
+validation, and oracle rejection does not replace a Rust malformed-input or
+limit regression. Temporary authored and synthesized archives are removed and
+are not trusted corpus inputs.
+
+On Windows CI, the black-box oracle installer is fetched from the pinned
+official 26.02 release URL, checked against its release SHA-256 before
+execution, and installed in an ephemeral runner directory. The test-only
+executable override is not read by production code. The job's `-sni` and `-sns`
+records are classification output until their semantics are reviewed and
+documented.
+
+The generated property matrix has the same test-only boundary. It bounds its
+deterministic source sizes, disables unintended automatic filters, verifies the
+serialized decoder-visible properties, and deletes its unique temporary tree.
+It never selects runtime methods or limits, and an oracle-authored archive is
+still processed as hostile input by the production parser and decoder.
+Semantic mutations recompute both stored-next-header and start-header CRCs so
+the parser must reach the changed packed-size or property declaration. They do
+not alter production validation, and encrypted inner headers are never treated
+as plaintext merely to manufacture coverage.
+
+The deterministic PPMd seed retains only a 49-byte packed test vector authored
+by exact stock `7zz` 26.02 from project text. It is never runtime input or a
+decoder fallback. Its positive path is paired with every-prefix truncation,
+meaningful corruption, property, CRC, dictionary/output/work, and cancellation
+regressions, so oracle authorship does not confer trust or bypass any resource
+or integrity boundary.
 
 Archive creation, modification, automatic filesystem extraction, ALES
 integration, network volume fetching, and isolation from a hostile in-process

@@ -36,6 +36,14 @@ pub(crate) const ID_DUMMY: u8 = 0x19;
 pub(crate) enum RawNextHeader<'data> {
     Header(RawHeader<'data>),
     Encoded(RawStreamsInfo<'data>),
+    ExternalFolders(RawExternalFolderHeader<'data>),
+}
+
+pub(crate) struct RawExternalFolderHeader<'data> {
+    pub(crate) additional_streams: RawStreamsInfo<'data>,
+    pub(crate) main_pack: Option<RawPackInfo>,
+    pub(crate) data_index: u64,
+    pub(crate) header_bytes: &'data [u8],
 }
 
 pub(crate) struct RawHeader<'data> {
@@ -99,6 +107,25 @@ pub(crate) struct RawCoder<'data> {
 pub(crate) struct RawBindPair {
     pub(crate) input: u64,
     pub(crate) output: u64,
+}
+
+#[derive(Clone, Copy)]
+struct ExternalFolderData<'data> {
+    data_index: u64,
+    bytes: &'data [u8],
+}
+
+enum ParsedUnpackInfo<'data> {
+    Complete(RawUnpackInfo<'data>),
+    External { data_index: u64 },
+}
+
+enum ParsedStreamsInfo<'data> {
+    Complete(RawStreamsInfo<'data>),
+    External {
+        pack: Option<RawPackInfo>,
+        data_index: u64,
+    },
 }
 
 #[derive(Default)]
@@ -481,12 +508,30 @@ fn parse_folder<'data>(
     })
 }
 
+fn parse_folders<'data>(
+    reader: &mut BoundedReader<'data>,
+    folder_count: u64,
+    state: &mut ParseState,
+    limits: Limits,
+    control: &mut ParseControl<'_>,
+) -> Result<Vec<RawFolder<'data>>> {
+    let mut folders = new_vec(
+        folder_count,
+        "folder count is not representable on this platform",
+    )?;
+    for _ in 0..folder_count {
+        folders.push(parse_folder(reader, state, limits, control)?);
+    }
+    Ok(folders)
+}
+
 fn parse_unpack_info<'data>(
     reader: &mut BoundedReader<'data>,
     state: &mut ParseState,
     limits: Limits,
     control: &mut ParseControl<'_>,
-) -> Result<RawUnpackInfo<'data>> {
+    external_folders: Option<ExternalFolderData<'data>>,
+) -> Result<ParsedUnpackInfo<'data>> {
     if read_u8(reader, control)? != ID_FOLDER {
         return Err(format_error("UnpackInfo is missing Folder"));
     }
@@ -498,20 +543,23 @@ fn parse_unpack_info<'data>(
     control.checkpoint(folder_count)?;
 
     let external = read_u8(reader, control)?;
-    if external != 0 {
-        let _data_index = read_uint(reader, control)?;
-        return Err(Error::UnsupportedFeature {
-            feature: String::from("external-folder-stream"),
-        });
-    }
-
-    let mut folders = new_vec(
-        folder_count,
-        "folder count is not representable on this platform",
-    )?;
-    for _ in 0..folder_count {
-        folders.push(parse_folder(reader, state, limits, control)?);
-    }
+    let mut folders = if external == 0 {
+        parse_folders(reader, folder_count, state, limits, control)?
+    } else {
+        let data_index = read_uint(reader, control)?;
+        let Some(source) = external_folders else {
+            return Ok(ParsedUnpackInfo::External { data_index });
+        };
+        if source.data_index != data_index {
+            return Err(format_error(
+                "external folder data index changed during header resolution",
+            ));
+        }
+        let mut external_reader = BoundedReader::new(source.bytes);
+        let folders = parse_folders(&mut external_reader, folder_count, state, limits, control)?;
+        external_reader.finish("external folder stream was not consumed exactly")?;
+        folders
+    };
 
     if read_u8(reader, control)? != ID_CODERS_UNPACK_SIZE {
         return Err(format_error("UnpackInfo is missing CodersUnpackSize"));
@@ -532,7 +580,7 @@ fn parse_unpack_info<'data>(
         return Err(format_error("unexpected UnpackInfo identifier"));
     }
 
-    Ok(RawUnpackInfo { folders, crcs })
+    Ok(ParsedUnpackInfo::Complete(RawUnpackInfo { folders, crcs }))
 }
 
 #[allow(clippy::same_item_push)]
@@ -624,7 +672,8 @@ fn parse_streams_info<'data>(
     state: &mut ParseState,
     limits: Limits,
     control: &mut ParseControl<'_>,
-) -> Result<RawStreamsInfo<'data>> {
+    external_folders: Option<ExternalFolderData<'data>>,
+) -> Result<ParsedStreamsInfo<'data>> {
     let mut id = read_u8(reader, control)?;
     let pack = if id == ID_PACK_INFO {
         let value = parse_pack_info(reader, state, limits, control)?;
@@ -634,7 +683,12 @@ fn parse_streams_info<'data>(
         None
     };
     let unpack = if id == ID_UNPACK_INFO {
-        let value = parse_unpack_info(reader, state, limits, control)?;
+        let value = match parse_unpack_info(reader, state, limits, control, external_folders)? {
+            ParsedUnpackInfo::Complete(value) => value,
+            ParsedUnpackInfo::External { data_index } => {
+                return Ok(ParsedStreamsInfo::External { pack, data_index });
+            }
+        };
         id = read_u8(reader, control)?;
         Some(value)
     } else {
@@ -661,11 +715,11 @@ fn parse_streams_info<'data>(
     if id != ID_END {
         return Err(format_error("unexpected StreamsInfo identifier"));
     }
-    Ok(RawStreamsInfo {
+    Ok(ParsedStreamsInfo::Complete(RawStreamsInfo {
         pack,
         unpack,
         substreams,
-    })
+    }))
 }
 
 fn parse_property_list<'data>(
@@ -707,11 +761,13 @@ fn parse_files_info<'data>(
 }
 
 fn parse_header_body<'data>(
+    header_bytes: &'data [u8],
     reader: &mut BoundedReader<'data>,
     state: &mut ParseState,
     limits: Limits,
     control: &mut ParseControl<'_>,
-) -> Result<RawHeader<'data>> {
+    external_folders: Option<ExternalFolderData<'data>>,
+) -> Result<RawNextHeader<'data>> {
     let mut id = read_u8(reader, control)?;
     let archive_properties = if id == ID_ARCHIVE_PROPERTIES {
         let properties = parse_property_list(reader, state, limits, control)?;
@@ -721,14 +777,34 @@ fn parse_header_body<'data>(
         Vec::new()
     };
     let additional_streams = if id == ID_ADDITIONAL_STREAMS_INFO {
-        let streams = parse_streams_info(reader, state, limits, control)?;
+        let streams = match parse_streams_info(reader, state, limits, control, None)? {
+            ParsedStreamsInfo::Complete(streams) => streams,
+            ParsedStreamsInfo::External { .. } => {
+                return Err(format_error(
+                    "AdditionalStreamsInfo cannot source its own folder definitions",
+                ));
+            }
+        };
         id = read_u8(reader, control)?;
         Some(streams)
     } else {
         None
     };
     let main_streams = if id == ID_MAIN_STREAMS_INFO {
-        let streams = parse_streams_info(reader, state, limits, control)?;
+        let streams = match parse_streams_info(reader, state, limits, control, external_folders)? {
+            ParsedStreamsInfo::Complete(streams) => streams,
+            ParsedStreamsInfo::External { pack, data_index } => {
+                let additional_streams = additional_streams.ok_or_else(|| {
+                    format_error("external folder definitions require AdditionalStreamsInfo")
+                })?;
+                return Ok(RawNextHeader::ExternalFolders(RawExternalFolderHeader {
+                    additional_streams,
+                    main_pack: pack,
+                    data_index,
+                    header_bytes,
+                }));
+            }
+        };
         id = read_u8(reader, control)?;
         Some(streams)
     } else {
@@ -744,12 +820,43 @@ fn parse_header_body<'data>(
     if id != ID_END {
         return Err(format_error("unexpected Header identifier"));
     }
-    Ok(RawHeader {
+    Ok(RawNextHeader::Header(RawHeader {
         archive_properties,
         additional_streams,
         main_streams,
         files,
-    })
+    }))
+}
+
+fn parse_next_header_inner<'data>(
+    bytes: &'data [u8],
+    state: &mut ParseState,
+    limits: Limits,
+    control: &mut ParseControl<'_>,
+    external_folders: Option<ExternalFolderData<'data>>,
+) -> Result<RawNextHeader<'data>> {
+    check_limit(1, limits.max_recursion_depth(), LimitKind::RecursionDepth)?;
+    let mut reader = BoundedReader::new(bytes);
+    let kind = read_u8(&mut reader, control)?;
+    let header = match kind {
+        ID_HEADER => {
+            match parse_header_body(bytes, &mut reader, state, limits, control, external_folders)? {
+                pending @ RawNextHeader::ExternalFolders(_) => return Ok(pending),
+                complete => complete,
+            }
+        }
+        ID_ENCODED_HEADER => match parse_streams_info(&mut reader, state, limits, control, None)? {
+            ParsedStreamsInfo::Complete(streams) => RawNextHeader::Encoded(streams),
+            ParsedStreamsInfo::External { .. } => {
+                return Err(format_error(
+                    "encoded-header folder definitions have no additional stream source",
+                ));
+            }
+        },
+        _ => return Err(format_error("unexpected next-header identifier")),
+    };
+    reader.finish("next-header body was not consumed exactly")?;
+    Ok(header)
 }
 
 pub(crate) fn parse_next_header<'data>(
@@ -758,16 +865,25 @@ pub(crate) fn parse_next_header<'data>(
     limits: Limits,
     control: &mut ParseControl<'_>,
 ) -> Result<RawNextHeader<'data>> {
-    check_limit(1, limits.max_recursion_depth(), LimitKind::RecursionDepth)?;
-    let mut reader = BoundedReader::new(bytes);
-    let kind = read_u8(&mut reader, control)?;
-    let header = match kind {
-        ID_HEADER => RawNextHeader::Header(parse_header_body(&mut reader, state, limits, control)?),
-        ID_ENCODED_HEADER => {
-            RawNextHeader::Encoded(parse_streams_info(&mut reader, state, limits, control)?)
-        }
-        _ => return Err(format_error("unexpected next-header identifier")),
-    };
-    reader.finish("next-header body was not consumed exactly")?;
-    Ok(header)
+    parse_next_header_inner(bytes, state, limits, control, None)
+}
+
+pub(crate) fn parse_next_header_with_external_folders<'data>(
+    bytes: &'data [u8],
+    data_index: u64,
+    folder_bytes: &'data [u8],
+    state: &mut ParseState,
+    limits: Limits,
+    control: &mut ParseControl<'_>,
+) -> Result<RawNextHeader<'data>> {
+    parse_next_header_inner(
+        bytes,
+        state,
+        limits,
+        control,
+        Some(ExternalFolderData {
+            data_index,
+            bytes: folder_bytes,
+        }),
+    )
 }

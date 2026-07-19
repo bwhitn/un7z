@@ -121,6 +121,13 @@ for advisories, bans, licenses, and sources on 2026-07-18. Its exact
 is `(MIT OR Apache-2.0) AND NCSA`; the required NCSA term has an exact-version,
 fuzz-only exception in `fuzz/deny.exceptions.toml`. That exception is outside
 the runtime workspace and does not expand the runtime license allowlist.
+The fuzz package directly names `aes` 0.9.1 and `cbc` 0.2.1 only to author a
+deterministic direct-KDF AES decoder seed with a public test password. Those
+exact MIT OR Apache-2.0 packages were already present in the locked runtime
+graph, so this adds no package or runtime dependency and no license exception.
+After that direct-edge change, cargo-deny 0.20.2 again reported `advisories ok,
+bans ok, licenses ok, sources ok` for both the runtime workspace and the
+separately locked fuzz package on 2026-07-19.
 `cargo-deny`, cargo-fuzz, cargo-llvm-cov, Miri, Rust toolchains, GitHub Actions,
 and `7zz` are development/test tools, not runtime dependencies. The local
 coverage/fuzz audit used cargo-llvm-cov 0.8.7 and cargo-fuzz 0.13.2 installed
@@ -203,3 +210,21 @@ embedded or generated-code licensing facts.
 Runtime crates and the installed CLI must contain no command invocation or
 fallback path to `7zz`. Official 7-Zip and p7zip source must not be downloaded,
 vendored, read, or translated.
+
+The capability-probe integration test adds no dependency. It uses
+`std::process::Command`, the existing `sha2` dependency, and an installed
+exact-version `7zz` test oracle. No oracle executable or generated archive is
+packaged or committed.
+
+The Windows CI probe obtains the official 26.02 x64 installer from the
+`ip7z/7zip` GitHub release and checks the release-published SHA-256
+`6745fa76dc2ea031596d8678f6f6b99c3c1b435b4164a63485adbbc7b8d82ef0`
+before execution. It installs only inside the ephemeral runner and supplies
+the resulting `7z.exe` through the test-only `UN7Z_7ZZ` override. This is the
+explicitly permitted black-box oracle use, not a Cargo dependency, shipped
+tool, source input, runtime fallback, or runtime-license exception.
+
+The generated method/property matrix likewise adds no dependency or lockfile
+change. It uses `std::process::Command`, the existing `sha2` test use, and the
+installed exact-version oracle; all generated source and archive bytes remain
+in a uniquely named temporary directory that is removed after the test.

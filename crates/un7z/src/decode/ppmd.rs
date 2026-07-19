@@ -2453,6 +2453,93 @@ mod tests {
         [order, first, second, third, fourth]
     }
 
+    // Synthetic text encoded by stock 7zz 26.02 with PPMd7 order 6 and a
+    // 64 KiB model. CORPUS.md and PROVENANCE.md record the exact command and
+    // hashes; the oracle-authored archive itself is not retained.
+    const PPMD_SEED: &[u8] = &[
+        0x00, 0x50, 0x01, 0xe2, 0xfb, 0xf5, 0x0f, 0xe5, 0x00, 0x93, 0xf9, 0x01, 0xda, 0xf2, 0xa8,
+        0x02, 0x8b, 0x72, 0x66, 0x5b, 0x34, 0xaa, 0x5a, 0xfc, 0xd6, 0xbb, 0xf6, 0x4e, 0x79, 0xab,
+        0x83, 0xe5, 0xa9, 0x16, 0x93, 0x8d, 0x10, 0x93, 0x1a, 0xdf, 0x38, 0xab, 0xa2, 0x72, 0xf6,
+        0x12, 0x2d, 0x98, 0x00,
+    ];
+    const PPMD_SEED_OUTPUT: &[u8] = b"PPMd fuzz seed: alpha beta gamma delta 0123456789\n";
+
+    #[test]
+    fn stock_7zz_vector_decodes_and_enforces_output_work_and_truncation() -> Result<()> {
+        let cancellation = CancellationToken::new();
+        let mut budget = WorkBudget::unlimited();
+        let mut control = ParseControl::new(&cancellation, &mut budget);
+        let decoded = decode_ppmd(
+            PPMD_SEED,
+            &properties(6, 64 * 1024),
+            Some(50),
+            50,
+            Limits::default(),
+            &mut control,
+        )?;
+        assert_eq!(decoded, PPMD_SEED_OUTPUT);
+        assert!(budget.consumed() > 0);
+
+        let cancellation = CancellationToken::new();
+        let mut budget = WorkBudget::bounded(0);
+        let mut control = ParseControl::new(&cancellation, &mut budget);
+        assert!(matches!(
+            decode_ppmd(
+                PPMD_SEED,
+                &properties(6, 64 * 1024),
+                Some(50),
+                49,
+                Limits::default(),
+                &mut control,
+            ),
+            Err(Error::LimitExceeded {
+                limit: LimitKind::TotalOutputBytes,
+                requested: 50,
+                maximum: 49,
+            })
+        ));
+        assert_eq!(budget.remaining(), Some(0));
+
+        let cancellation = CancellationToken::new();
+        let mut budget = WorkBudget::bounded(0);
+        let mut control = ParseControl::new(&cancellation, &mut budget);
+        assert!(matches!(
+            decode_ppmd(
+                PPMD_SEED,
+                &properties(6, 64 * 1024),
+                Some(50),
+                50,
+                Limits::default(),
+                &mut control,
+            ),
+            Err(Error::LimitExceeded {
+                limit: LimitKind::WorkUnits,
+                ..
+            })
+        ));
+
+        for length in 0..PPMD_SEED.len() {
+            let prefix = PPMD_SEED
+                .get(..length)
+                .ok_or_else(|| std::io::Error::other("PPMd prefix is unavailable"))?;
+            let cancellation = CancellationToken::new();
+            let mut budget = WorkBudget::unlimited();
+            let mut control = ParseControl::new(&cancellation, &mut budget);
+            assert!(
+                decode_ppmd(
+                    prefix,
+                    &properties(6, 64 * 1024),
+                    Some(50),
+                    50,
+                    Limits::default(),
+                    &mut control,
+                )
+                .is_err()
+            );
+        }
+        Ok(())
+    }
+
     #[test]
     fn rejects_memory_before_decoder_allocation() {
         let cancellation = CancellationToken::new();

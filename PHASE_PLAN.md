@@ -60,8 +60,9 @@ Review units:
 4. **Implemented at the no-decode boundary:** additional streams and external
    property references, raw UTF-16 names, inline timestamps/attributes/
    StartPos, empty/anti records, and bounded unknown/archive/comment
-   properties. External contents await decoding; external folder definitions
-   return typed `UnsupportedFeature`;
+   properties. External contents originally awaited decoding at this phase
+   boundary; the 2026-07-19 post-phase follow-up now stages external folder
+   definitions for bounded archive-layer resolution;
 5. **Implemented:** generated malformed regressions, exact 100,000-entry
    boundary, malicious decoder declarations, nested truncations, mutation
    sweeps, and a 32-bit-only conversion regression plus CI compile target;
@@ -143,9 +144,10 @@ constant-memory claim.
 ## Phase 4: Go parity, crypto, SFX, metadata, and volumes
 
 Status: implemented for the evidence-bounded capability rows in
-`COMPATIBILITY.md` on 2026-07-18. Semantic decoded comments, external folder
-definitions, and a filesystem collision/extraction policy remain explicit
-unsupported or raw-metadata boundaries rather than inflated Phase 4 claims.
+`COMPATIBILITY.md` on 2026-07-18, with external folder definitions added as a
+reviewed post-phase follow-up on 2026-07-19. Semantic decoded comments and a
+filesystem collision/extraction policy remain explicit unsupported or
+raw-metadata boundaries rather than inflated Phase 4 claims.
 
 Review units:
 
@@ -163,11 +165,17 @@ Review units:
    layout, direct and iterated KDF modes, pre-work `max_kdf_power`, per-round
    control checks, per-archive zeroizing password bytes, zeroized derived
    material, encrypted headers/data, and combined wrong-password/corrupt typing;
-5. **Implemented:** referenced AdditionalStreamsInfo decoding and exact external
+5. **Implemented:** AdditionalStreamsInfo decoding and exact external
    Name, creation/access/modification time, Windows attribute, and StartPos
    application; raw UTF-16, archive/comment properties, empty/anti/duplicate
    entries, Unix modes, symlink metadata, and safe-path separation are
-   preserved. External folder definitions remain typed unsupported;
+   preserved. The follow-up stages externally stored main folder definitions,
+   decodes every AdditionalStreamsInfo folder once, selects the indexed output,
+   requires exact folder-record consumption, and revalidates the complete
+   header. Explicit archive verification independently walks every additional
+   folder, including unreferenced folders, drops each output before continuing,
+   verifies every applicable CRC, and shares limits/password/control with main
+   streams;
 6. **Implemented:** bounded path and memory `VolumeProvider`s, sequential `.001`
    naming, checked aggregate input/count/capacity, cancellation/work between
    callbacks and reads, exact missing-volume diagnostics, split packed streams,
@@ -175,7 +183,8 @@ Review units:
 7. **Implemented:** Phase 4 public-API differential/oracle tests, an encrypted
    BCJ→LZMA2→AES generated oracle, five-part encrypted/unencrypted memory tests,
    the real six-part path fixture, external metadata/CRC regressions, symlink
-   oracle, expanded decoder fuzzing, and an active volume fuzz target.
+   oracle, external-folder stock-oracle and malformed/encrypted regressions,
+   expanded decoder fuzzing, and an active volume fuzz target.
 
 Exit gate: every Go-parity row claimed in `COMPATIBILITY.md` has a named
 differential test. Five-volume encrypted and unencrypted fixtures, SFX,
@@ -380,8 +389,56 @@ separate valid or malformed corpus is available.
    81.66% after merging the generated-method, Phase 5, and symlink oracle
    paths. Coverage excludes the CLI and remains diagnostic rather than a
    compatibility threshold.
+6. Added staged external-folder resolution with folder-output `DataIndex`
+   validation, exact reparse consumption, decoded-output reuse for external
+   metadata, CRC/password/limit regressions, a generated fuzz wrapper, and
+   black-box acceptance by stock `7zz` 26.02 for one- and two-folder forms.
+7. Added sequential verification of unreferenced AdditionalStreamsInfo folders
+   with exact packed/folder/substream checksum scopes, AES password states,
+   cumulative additional-plus-main output/work/cancellation accounting,
+   crossed three-part plain/encrypted memory volumes, a CRC-correct fuzz
+   wrapper, and black-box acceptance by stock `7zz` 26.02. The refreshed
+   ordinary core line report is 67.15%; merging the generated-method, Phase 5,
+   symlink, stock additional-stream, and capability-probe paths reaches 83.85%
+   lines (80.45% regions) after the matrix's negative pass. Capability candidates
+   remain diagnostic rather than positive compatibility evidence.
+8. Added an exact-version, corpus-free stock-`7zz` capability-probe suite with
+   structured author/oracle/Rust outcomes and deterministic candidate hashes.
+   The 26.02 macOS baseline covers comment candidates, alternative coders,
+   unknown sizes, raw `AES256CBC` authoring, hard links, and symlinks; it finds
+   no new confirmed decoder gap. Windows `-sni` security descriptors and `-sns`
+   alternate streams remain explicitly unobserved rather than inferred.
+9. Added a 24-archive exact-26.02 positive property matrix for LZMA/LZMA2
+   dictionaries, LZMA probability properties, PPMd order/memory, Delta
+   distances, BZip2 blocks, Deflate levels, filter chains, encrypted variants,
+   and solid/non-solid multi-entry layouts. It rejects silent authoring
+   normalization through exact coder-property, packed-header, method-token,
+   graph, and folder-count assertions before comparing metadata, bytes,
+   SHA-256, CRCs, and verification.
+10. Extended all 24 property-matrix cases with packed corruption, three
+    physical truncation boundaries, entry-output/work/cancellation limits, and
+    applicable dictionary limits. Plain headers also get CRC-correct logical
+    packed truncation plus oversized and empty coder-property declarations;
+    BZip2 gets invalid block headers. Encrypted-header cases retain hostile
+    outer-byte and operation-boundary coverage without claiming that their
+    encrypted inner property bytes were directly mutated.
+11. Added a corpus-free deterministic decoder generator with 20 complete,
+    CRC-correct archive profiles and eight bounded structured mutation classes.
+    Its standalone invariant test reaches production open, verification,
+    extraction, graph, decoder, CRC, limit, work, and cancellation paths without
+    retaining a binary fuzz corpus.
+12. Added a fixed PPMd order-6/64-KiB packed vector produced by black-box stock
+    `7zz` 26.02 from project-authored text. Exact provenance and hashes accompany
+    core every-prefix/resource regressions and public corruption/CRC/limit/
+    cancellation checks. A fresh 100,000-execution `decoding` campaign completed
+    without a crash or timeout; its stable-sysroot no-ASan limitation remains
+    explicit in `FUZZING.md`.
+13. Added a checksum-pinned Windows stock-7-Zip 26.02 capability job. It accepts
+    the official Windows banner through a test-only executable override and
+    emits `-sni` security-descriptor and `-sns` alternate-stream classifications
+    without making a compatibility claim before the first CI output is reviewed.
 
-No binary oracle output or fuzzer working corpus is committed. The next
+No binary oracle output or fuzzer working corpus is committed. Further
 compatibility work should use these generated/fuzz/coverage paths and retain a
 typed unsupported result wherever stock syntax is still unimplemented.
 

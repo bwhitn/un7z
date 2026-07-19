@@ -300,6 +300,8 @@ dependencies = [
 name = "un7z-fuzz"
 version = "0.0.0"
 dependencies = [
+ "aes",
+ "cbc",
  "libfuzzer-sys",
  "un7z",
 ]

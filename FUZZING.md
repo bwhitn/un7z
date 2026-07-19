@@ -39,14 +39,40 @@ The same target also wraps every input into a CRC-correct one-member Copy
 archive and into one selected single-input core coder archive. These generated
 envelopes keep signature/start/next-header grammar and ranges valid, so
 seedless CI runs reach production graph execution and Copy CRC finalization.
+The target also builds a CRC-correct archive whose main folder definition is
+stored in AdditionalStreamsInfo. One selector supplies a valid Copy folder and
+the others supply up to 256 arbitrary bytes, so seedless runs reach both the
+successful staged decode/reparse path and bounded malformed external-folder
+parsing without weakening any checksum.
+Every input is also wrapped as the packed bytes of an otherwise CRC-correct,
+unreferenced AdditionalStreamsInfo Copy folder beside a valid main Copy member.
+Calling `Archive::verify` on that envelope keeps the outer grammar and main
+member valid while driving arbitrary additional-stream bytes through packed,
+folder, and logical-substream verification under the public operation limits.
 The selected one-coder wrappers directly exercise LZMA/LZMA2, all
 single-input filters, Deflate, Deflate64, BZip2, PPMd, Brotli, LZ4, Zstandard,
 and bounded AES/KDF error paths without disabling an integrity check in
 production code. A second generated wrapper declares an unknown output size
 for the closed allowlist of boundary- or EOS-terminated methods. BCJ2
-four-input success coverage uses the corpus-free generated `7zz` oracle and
-deterministic unit tests; malformed graph/input coverage remains in the fuzz
+four-input success coverage uses both an in-process seed and the corpus-free
+generated `7zz` oracle; malformed graph/input coverage remains in the fuzz
 target.
+
+Every `decoding` input now also selects one of 20 complete, CRC-correct,
+in-process archive profiles: Copy; the fixed raw-LZMA EOS vector; three LZMA2
+dictionary properties; stored Deflate and Deflate64; fixed BZip2, Brotli, and
+PPMd vectors; uncompressed LZ4 and Zstandard frames; direct-KDF AES; a
+reverse-declaration Copy graph; four-input BCJ2; LZMA2-to-BCJ and
+LZMA2-to-PPC chains; and Copy-to-Delta chains at distances 1, 4, and 256.
+Input-derived payloads are capped at 64 bytes. The positive archive must open,
+verify, and, when the expected transform is independently known, extract exact
+bytes. A second path applies one of eight structured mutations: packed-data
+corruption, physical truncation, CRC-correct property-length/property-byte/
+bind-index/unpack-size changes, folder-CRC corruption, or a CRC-correct
+packed-size decrement. This keeps every seedless run in deep parser/graph/
+decoder states while retaining arbitrary malformed coverage. The fixed vectors
+and test-only AES authoring provenance are recorded in `CORPUS.md` and
+`PROVENANCE.md`.
 
 `fuzz/fuzz_targets/volumes.rs` sends arbitrary part boundaries, missing terminal
 parts, excessive part counts, and CRC-correct Copy archives through
@@ -62,13 +88,35 @@ and nested headers, CRC-correct mutation sweeps, valid graph chains of lengths
 one through eight, the 100,000-entry boundary, every prefix of small LZMA and
 LZMA2 EOS streams and a raw Deflate final-block stream, truncated LZMA range
 initialization, truncated BCJ2 range input, corrupt Copy/member CRCs, every
-prefix of a stored Deflate64 block, and decoder output/work/cancellation
-limits.
+prefix of a stored Deflate64 block, every prefix and exact/trailing variants of
+an external-folder archive, invalid external output indices, external
+packed/folder/substream CRCs, encrypted password states, and decoder
+output/work/cancellation limits. Serialized unreferenced-additional regressions
+also cover additional-only and additional-plus-main success, distinct packed,
+folder, and substream corruption scopes, AES password states, cumulative
+additional-plus-main output accounting, work exhaustion, cancellation, and
+plain/encrypted packed data crossing three memory-volume boundaries.
 
 Solid-output regressions additionally cover pre-decode limits for every known
 substream, an unknown final member capped to one entry allowance, typed
 pre-decode rejection of an unknown non-final member, and proportional work
 charging across an x86 BCJ input with no branch opcodes.
+
+The exact-version `7zz` capability probes are not fuzz seeds and make no
+no-panic claim. Their deterministic synthetic comment, alternative-coder, and
+unknown-size candidates exercise ordinary parser boundaries; only a probe that
+becomes accepted compatibility evidence may be promoted to a seed after its
+origin and expected result are recorded. Temporary oracle-authored link and
+platform-metadata archives are deleted.
+
+The exact-version method/property matrix is also positive differential input,
+not automatically a fuzz corpus. Its property combinations may be promoted to
+the existing generated decoding wrappers only after the serialized case is
+reduced, its origin and expected result remain reproducible, and mutation does
+not require invoking `7zz` from a fuzz target. The matrix itself never runs in
+libFuzzer. Its deterministic CRC-correct packed-size/property mutations remain
+integration regressions; a later seed-generator change may reproduce their
+structures without retaining oracle-authored archive bytes.
 
 The targets use `libfuzzer-sys` 0.4.13. Its NCSA license term is recorded as an
 exact, fuzz-only cargo-deny exception; it is not a runtime dependency or runtime
@@ -92,8 +140,14 @@ the standalone harness graph and license policy before running:
 
 ```text
 cargo check --manifest-path fuzz/Cargo.toml --bins --locked
+cargo test --manifest-path fuzz/Cargo.toml --locked
 cargo deny --manifest-path fuzz/Cargo.toml check
 ```
+
+The standalone integration test enumerates all 20 positive profiles and all
+eight mutation classes. It is a deterministic generator invariant check, not a
+replacement for libFuzzer mutation or oracle differential tests. The fuzz-smoke
+CI job runs this invariant test before launching the six targets.
 
 Generated corpus and crash artifacts are ignored. Minimized, non-sensitive
 regressions move into normal unit/integration tests with documented provenance.
@@ -214,14 +268,32 @@ with `RUSTC_BOOTSTRAP=1 --sanitizer none`. This is real sanitizer-coverage
 feedback, but it is not an AddressSanitizer result and does not replace the
 nightly ASan CI gate.
 
-Final libFuzzer observations were:
+On 2026-07-19, after adding the CRC-correct external-folder wrapper,
+`decoding` rebuilt and completed 1,000 additional executions with no crash.
+The ignored local working corpus began with 301 generated entries; libFuzzer
+finished at 1,817 coverage counters, 3,318 feature counters, 288 retained
+entries, and 26 MiB reported RSS. This used the same Homebrew
+`RUSTC_BOOTSTRAP=1 --sanitizer none` fallback and emitted the same missing
+sanitizer-hook warnings, so it is a coverage-guided harness/no-panic smoke
+result, not AddressSanitizer or peak-memory evidence.
+
+After adding the CRC-correct unreferenced-additional wrapper on the same date,
+`decoding` rebuilt and completed another 1,000 executions with no crash. It
+loaded 325 working-corpus files, initialized with 1,857 coverage counters and
+3,381 feature counters, and finished at 1,888 coverage counters, 3,488 feature
+counters, 317 retained entries, and 27 MiB reported RSS. The run again used
+`RUSTC_BOOTSTRAP=1 --sanitizer none` and emitted missing sanitizer-hook
+warnings, so it is coverage-guided harness/no-panic evidence rather than an
+AddressSanitizer or peak-memory result.
+
+The last observations before the in-process decoder-seed generator were:
 
 | Target | Coverage counters | Feature counters | Corpus entries | RSS |
 | --- | ---: | ---: | ---: | ---: |
 | `header_envelope` | 64 | 98 | 11 | 25 MiB |
 | `next_header` | 400 | 596 | 97 | 25 MiB |
 | `validated_graph` | 444 | 670 | 19 | 25 MiB |
-| `decoding` | 1,661 | 3,257 | 288 | 28 MiB |
+| `decoding` | 1,888 | 3,488 | 317 | 27 MiB |
 | `volumes` | 805 | 1,215 | 40 | 26 MiB |
 | `path_validation` | 71 | 128 | 66 | 25 MiB |
 
@@ -229,3 +301,40 @@ No target crashed or timed out. The generated working corpora remain under the
 ignored `fuzz/corpus/` path; they are disposable local fuzzer state, not
 project compatibility fixtures. The reproducible authoritative command stays
 the nightly cargo-fuzz form above, which enables AddressSanitizer by default.
+
+On 2026-07-19, the new deterministic decoder profiles first passed their
+standalone exhaustive test and then ran from fresh empty temporary corpora. The
+`decoding` target completed 100,000 executions; each other target completed
+50,000. No target crashed or timed out. The observations at process exit were:
+
+| Target | Runs | Coverage counters | Feature counters | Retained entries | Corpus bytes | RSS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `header_envelope` | 50,000 | 64 | 98 | 12 | 404 | 25 MiB |
+| `next_header` | 50,000 | 511 | 876 | 141 | 2,144 | 25 MiB |
+| `validated_graph` | 50,000 | 445 | 671 | 15 | 55 | 25 MiB |
+| `decoding` | 100,000 | 3,661 | 8,255 | 1,007 | 12,408 | 58 MiB |
+| `volumes` | 50,000 | 763 | 1,196 | 48 | 1,853 | 26 MiB |
+| `path_validation` | 50,000 | 74 | 165 | 78 | 2,401 | 25 MiB |
+
+The `decoding` binary had previously ended at 1,888 counters and 3,488
+features, but the harness itself also grew, so that delta is evidence of
+substantially deeper feedback—not a source-line coverage percentage. The
+fresh `volumes` corpus ended below the earlier retained-corpus observation; no
+coverage improvement is claimed for that target.
+
+These runs used cargo-fuzz 0.13.2 with sanitizer-coverage feedback and the
+local fallback `RUSTC_BOOTSTRAP=1 --sanitizer none`, because the Homebrew stable
+sysroot lacks the matching AddressSanitizer runtime. The reported RSS is a
+runner observation, not a bounded-memory benchmark. The missing sanitizer
+hooks mean these results are no-panic/coverage-guided evidence only; the
+nightly AddressSanitizer job remains required. All temporary corpora were
+created under `/private/tmp` and are not repository fixtures.
+
+After adding the twentieth, fixed PPMd profile, a second fresh `decoding`-only
+campaign completed 100,000 executions in 38 seconds without a crash or timeout.
+It ended at 3,738 coverage counters, 8,663 feature counters, 1,192 retained
+entries (approximately 18 KiB), and 63 MiB RSS. The preceding PPMd-free run
+ended at 3,661 counters and 8,255 features, but the harness changed, so this is
+feedback-depth evidence rather than a source-coverage delta. This run used the
+same Homebrew-stable `RUSTC_BOOTSTRAP=1 --sanitizer none` fallback and therefore
+does not replace the nightly AddressSanitizer gate.

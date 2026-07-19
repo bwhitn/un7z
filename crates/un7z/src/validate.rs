@@ -6,7 +6,8 @@ use crate::{
     graph::validate_folder_graph,
     model::{
         ArchiveHeader, BindPair, Coder, ExternalProperty, FileEntry, FileStream, FilesInfo, Folder,
-        HeaderEnvelope, PackStream, ParsedNextHeader, StoredProperty, StreamsInfo, Substream,
+        HeaderEnvelope, PackStream, ParsedNextHeader, PendingExternalFolderHeader, StoredProperty,
+        StreamsInfo, Substream,
     },
     parse_util::{
         ParseControl, check_limit, checked_range, copy_bytes, format_error, try_reserve,
@@ -15,7 +16,7 @@ use crate::{
     raw::{
         ID_ANTI, ID_ATIME, ID_CTIME, ID_DUMMY, ID_EMPTY_FILE, ID_EMPTY_STREAM, ID_MTIME, ID_NAME,
         ID_START_POS, ID_WIN_ATTRIBUTES, RawFilesInfo, RawFolder, RawHeader, RawNextHeader,
-        RawProperty, RawStreamsInfo,
+        RawPackInfo, RawProperty, RawStreamsInfo,
     },
 };
 
@@ -499,13 +500,13 @@ fn build_substreams(
 }
 
 fn validate_pack_ranges(
-    raw: &RawStreamsInfo<'_>,
+    pack: Option<&RawPackInfo>,
     envelope: HeaderEnvelope,
     archive_bytes: &[u8],
     ranges: &mut Vec<(u64, u64)>,
     control: &mut ParseControl<'_>,
 ) -> Result<(u64, Box<[PackStream]>)> {
-    let Some(pack) = raw.pack.as_ref() else {
+    let Some(pack) = pack else {
         return Ok((0, Box::default()));
     };
     let sizes = pack
@@ -594,7 +595,7 @@ fn validate_streams(
         return Ok(StreamsInfo::new(0, Box::default(), Box::default(), 0));
     }
     let (pack_position, pack_streams) =
-        validate_pack_ranges(raw, envelope, archive_bytes, ranges, control)?;
+        validate_pack_ranges(raw.pack.as_ref(), envelope, archive_bytes, ranges, control)?;
     let unpack = raw
         .unpack
         .as_ref()
@@ -958,7 +959,13 @@ fn validate_files(
         )?,
     };
 
-    let additional_count = additional_streams.map_or(0, StreamsInfo::substream_count);
+    let additional_count = match additional_streams {
+        Some(streams) => usize_to_u64(
+            streams.folders().len(),
+            "additional-stream folder count is not representable as u64",
+        )?,
+        None => 0,
+    };
     let mut external = Vec::new();
     let names = match name {
         Some(property) => apply_external(
@@ -1187,6 +1194,44 @@ pub(crate) fn validate_next_header(
             limits,
             control,
         )?)),
+        RawNextHeader::ExternalFolders(pending) => {
+            let mut ranges = Vec::new();
+            let additional_streams = validate_streams(
+                &pending.additional_streams,
+                envelope,
+                archive_bytes,
+                limits,
+                control,
+                &mut ranges,
+            )?;
+            if pending.main_pack.is_none() {
+                return Err(format_error(
+                    "PackInfo and external UnpackInfo must appear together",
+                ));
+            }
+            let _ = validate_pack_ranges(
+                pending.main_pack.as_ref(),
+                envelope,
+                archive_bytes,
+                &mut ranges,
+                control,
+            )?;
+            check_non_overlapping_ranges(&mut ranges)?;
+            validate_data_index(
+                pending.data_index,
+                usize_to_u64(
+                    additional_streams.folders().len(),
+                    "additional-stream folder count is not representable as u64",
+                )?,
+            )?;
+            Ok(ParsedNextHeader::PendingExternalFolders(
+                PendingExternalFolderHeader::new(
+                    additional_streams,
+                    pending.data_index,
+                    copy_bytes(pending.header_bytes, control)?,
+                ),
+            ))
+        }
         RawNextHeader::Encoded(streams) => {
             let mut ranges = Vec::new();
             let streams = validate_streams(
