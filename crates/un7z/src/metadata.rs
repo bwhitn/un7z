@@ -138,16 +138,16 @@ fn verify_decoded_additional_folder(
                     )?,
             )
             .ok_or_else(|| format_error("additional-stream range is out of bounds"))?;
-        if let Some(expected) = substream.crc()
-            && checksum(bytes, control)? != expected
-        {
-            if encrypted {
-                return Err(Error::WrongPasswordOrCorrupt);
+        if let Some(expected) = substream.crc() {
+            if checksum(bytes, control)? != expected {
+                if encrypted {
+                    return Err(Error::WrongPasswordOrCorrupt);
+                }
+                return Err(Error::Checksum {
+                    scope: ChecksumScope::AdditionalStream,
+                    member_index: None,
+                });
             }
-            return Err(Error::Checksum {
-                scope: ChecksumScope::AdditionalStream,
-                member_index: None,
-            });
         }
         offset = end;
     }
