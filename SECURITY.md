@@ -238,7 +238,13 @@ the normal parser, model, and decoder invariants accept them.
 The Windows oracle job verifies the official 26.02 installer SHA-256 before
 executing it and installs it only inside the ephemeral runner. Its executable
 override is read only by the ignored integration probe; no production library,
-CLI, binding, or runtime path can invoke the oracle.
+CLI, binding, or runtime path can invoke the oracle. The first observed
+Windows run rejected both `-sni` and `-sns` during authoring and therefore
+supplied no metadata bytes to the Rust parser. The revised test verifies an
+ordinary control archive and ADS readback first, keeps at most six sanitized
+diagnostic marker/context lines, and fails on a changed stage classification.
+Those test diagnostics and assertions neither admit a runtime feature nor
+weaken any hostile-input boundary.
 
 The generated method/property matrix is positive differential evidence, not an
 allocation or validation bypass. Requested dictionary/model sizes are asserted

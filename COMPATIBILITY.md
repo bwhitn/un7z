@@ -127,9 +127,13 @@ unknown packed and non-final sizes are rejected by `7zz` and remain typed Rust
 boundaries; and raw `AES256CBC` authoring fails with `E_NOTIMPL`. A `-snl`
 archive succeeds in both implementations. `-snh` produces an archive both can
 verify, but stock extraction on the observed macOS host does not recreate a
-hard-link relationship. A checksum-pinned exact-26.02 Windows CI probe is now
-configured for `-sni` and `-sns`, but its output remains unobserved and no
-Windows metadata claim is inferred before that run.
+hard-link relationship. The first checksum-pinned exact-26.02 Windows CI run
+rejected both `-sni` and `-sns` authoring with exit 2 and `System ERROR:`,
+so it produced no security-descriptor or alternate-stream archive for Rust to
+read. That observed environmental/oracle failure is not a compatibility claim.
+The revised probe adds separate inputs, ADS readback, an ordinary-authoring
+control, bounded error context, and a stage-drift assertion; its next Windows
+result remains evidence to review.
 
 Candidate acceptance, warning, or rejection is not itself a format-validity
 claim. No capability row moves to supported without an accepted fixture,
@@ -285,9 +289,10 @@ provenance.
 - On 2026-07-18 the locally built `cp39-abi3` macOS wheel installed into a
   clean CPython 3.12 virtual environment and all 10 binding tests passed. Its
   sdist independently rebuilt into a wheel, and that installed wheel passed the
-  same suite. Python 3.9 Linux/macOS/Windows wheel build/install/test jobs are
-  configured but have not been observed locally and are not claimed as passing
-  evidence.
+  same suite. On 2026-07-20, PR #1 at `8c26a6e` passed the configured Python
+  3.9 Linux/macOS/Windows wheel build/install/test jobs, binding quality gate,
+  Rust 1.85 binding check, and sdist rebuild test. Those CI results establish
+  the packaging/platform boundary, not additional codec evidence.
 
 This binding fixture establishes the FFI behavior for Copy only. The adapter
 can dispatch the core's other supported methods, but no additional method row

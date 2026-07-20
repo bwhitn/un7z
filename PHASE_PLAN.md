@@ -3,6 +3,9 @@
 This plan is ordered by security dependencies rather than method popularity.
 Every phase is reviewable on its own, keeps all completed gates green, and
 updates compatibility claims only when an identified corpus test passes.
+Phases 1-7 and post-phase hardening items 1-13 are present on `main` through
+merge commit `77c2176` (2026-07-20). Historical dates below identify when
+each review unit and its recorded local gates were performed.
 
 ## Reference inspection completed before implementation
 
@@ -20,7 +23,7 @@ provenance was not established.
 
 ## Phase 1: foundation and policy
 
-Status: implemented and audited in this working tree on 2026-07-18. The audit
+Status: implemented and audited on 2026-07-18. The audit
 reran all baseline gates, added the required root `AGENTS.md`, and corrected the
 resource model to include an explicit builder-configurable recursion-depth
 limit. No existing Phase 1 layer was rewritten.
@@ -45,7 +48,7 @@ compatibility is claimed.
 
 ## Phase 2: bounded parser and validated model
 
-Status: complete in this working tree on 2026-07-18.
+Status: complete as of 2026-07-18.
 
 Review units:
 
@@ -94,7 +97,7 @@ applicable before a decoder exists.
 
 ## Phase 3: graph, CRC enforcement, and core methods
 
-Status: complete for the declared Phase 3 scope in this working tree on
+Status: complete for the declared Phase 3 scope as of
 2026-07-18. Encryption-dependent chains remain an explicit Phase 4 gate and
 are not claimed here.
 
@@ -261,7 +264,7 @@ claimed.
 
 ## Phase 6: stabilize the Rust API
 
-Status: implemented in this working tree on 2026-07-18.
+Status: implemented as of 2026-07-18.
 
 1. **Implemented:** froze concrete archive, entry metadata, error, limits,
    password-opening, volume, list, sink, path-policy, retained-resource, and
@@ -319,7 +322,7 @@ unavailable and are not claimed as evidence.
 
 ## Phase 7: separate Python package
 
-Status: implemented in this working tree on 2026-07-18 after the Phase 2-6
+Status: implemented as of 2026-07-18 after the Phase 2-6
 gates passed.
 
 1. **Implemented:** created a workspace-excluded, separately locked
@@ -363,10 +366,10 @@ licenses/notices, and generated SBOM. Root Rust gates remain green and the
 workspace excludes the binding.
 
 The GitHub workflow builds, installs, and tests produced wheels on Linux,
-macOS, and Windows and checks Rust 1.85 separately. Only the local macOS wheel
-result is observed here; remote Linux/Windows success is not claimed before CI
-runs. The Python Copy fixture proves the FFI boundary without broadening any
-codec row in `COMPATIBILITY.md`.
+macOS, and Windows and checks Rust 1.85 separately. On 2026-07-20, PR #1 at
+`8c26a6e` passed that three-platform wheel matrix, the binding quality and
+MSRV gates, and the sdist rebuild test. The Python Copy fixture proves the FFI
+boundary without broadening any codec row in `COMPATIBILITY.md`.
 
 ## Post-phase compatibility hardening
 
@@ -406,8 +409,9 @@ separate valid or malformed corpus is available.
    structured author/oracle/Rust outcomes and deterministic candidate hashes.
    The 26.02 macOS baseline covers comment candidates, alternative coders,
    unknown sizes, raw `AES256CBC` authoring, hard links, and symlinks; it finds
-   no new confirmed decoder gap. Windows `-sni` security descriptors and `-sns`
-   alternate streams remain explicitly unobserved rather than inferred.
+   no new confirmed decoder gap. The first Windows run rejected `-sni`
+   security-descriptor and `-sns` alternate-stream authoring before producing
+   an archive, so those semantics remain unproven rather than inferred.
 9. Added a 24-archive exact-26.02 positive property matrix for LZMA/LZMA2
    dictionaries, LZMA probability properties, PPMd order/memory, Delta
    distances, BZip2 blocks, Deflate levels, filter chains, encrypted variants,
@@ -435,8 +439,15 @@ separate valid or malformed corpus is available.
     explicit in `FUZZING.md`.
 13. Added a checksum-pinned Windows stock-7-Zip 26.02 capability job. It accepts
     the official Windows banner through a test-only executable override and
-    emits `-sni` security-descriptor and `-sns` alternate-stream classifications
-    without making a compatibility claim before the first CI output is reviewed.
+    emits `-sni` security-descriptor and `-sns` alternate-stream classifications.
+    The first output was reviewed on 2026-07-20: both authoring commands
+    returned exit 2 with `System ERROR:`, so neither produced compatibility
+    evidence.
+14. This post-merge review unit adds separate Windows security/ADS sources,
+    ADS readback, an ordinary authoring control, bounded post-error context,
+    stage-drift assertions, and a structured CI summary without changing a
+    runtime feature boundary. Its new Windows control and detailed error text
+    are not evidence until the updated job runs.
 
 No binary oracle output or fuzzer working corpus is committed. Further
 compatibility work should use these generated/fuzz/coverage paths and retain a

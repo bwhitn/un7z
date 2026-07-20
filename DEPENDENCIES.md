@@ -226,7 +226,10 @@ The Windows CI probe obtains the official 26.02 x64 installer from the
 before execution. It installs only inside the ephemeral runner and supplies
 the resulting `7z.exe` through the test-only `UN7Z_7ZZ` override. This is the
 explicitly permitted black-box oracle use, not a Cargo dependency, shipped
-tool, source input, runtime fallback, or runtime-license exception.
+tool, source input, runtime fallback, or runtime-license exception. The
+Windows control/ADS-readback checks and bounded diagnostic collector use only
+`std::fs` and existing test code; publishing their TSV records through the
+built-in GitHub job summary adds no action, package, or runtime dependency.
 
 The generated method/property matrix likewise adds no dependency or lockfile
 change. It uses `std::process::Command`, the existing `sha2` test use, and the

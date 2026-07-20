@@ -107,7 +107,10 @@ no-panic claim. Their deterministic synthetic comment, alternative-coder, and
 unknown-size candidates exercise ordinary parser boundaries; only a probe that
 becomes accepted compatibility evidence may be promoted to a seed after its
 origin and expected result are recorded. Temporary oracle-authored link and
-platform-metadata archives are deleted.
+platform-metadata archives are deleted. The Windows no-switch control,
+ADS-readback precondition, stage baseline, and bounded command diagnostics
+classify the oracle environment; they do not enter a fuzz corpus or bypass the
+production parser's normal limits and checksums.
 
 The exact-version method/property matrix is also positive differential input,
 not automatically a fuzz corpus. Its property combinations may be promoted to

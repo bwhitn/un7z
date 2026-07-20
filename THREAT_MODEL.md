@@ -319,8 +319,13 @@ On Windows CI, the black-box oracle installer is fetched from the pinned
 official 26.02 release URL, checked against its release SHA-256 before
 execution, and installed in an ephemeral runner directory. The test-only
 executable override is not read by production code. The job's `-sni` and `-sns`
-records are classification output until their semantics are reviewed and
-documented.
+records are classification output only. The first reviewed run rejected both
+switches before creating an archive, so no feature bytes crossed into the Rust
+parser and no support claim followed. The revised probe separates the two
+inputs, verifies ADS creation by byte-for-byte readback, requires a no-switch
+control archive, retains bounded post-error context, and makes a stage change
+fail for explicit review. Oracle diagnostics are sanitized and bounded before
+publication in the CI summary.
 
 The generated property matrix has the same test-only boundary. It bounds its
 deterministic source sizes, disables unintended automatic filters, verifies the
