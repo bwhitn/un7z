@@ -183,11 +183,12 @@ as redistributable corpus material.
 The observed candidate hashes, warnings, errors, and platform limitations are
 recorded in `CAPABILITY_PROBES.md`. Synthetic rejection cannot prove that no
 valid form exists, and acceptance without visible semantics cannot establish a
-compatibility claim. The first exact-version Windows run rejected `-sni` and
-`-sns` authoring before an archive existed, so it contributed no NT-security
-or ADS corpus evidence. The revised ephemeral probe adds an ordinary-authoring
-control, separate metadata inputs, ADS readback, and bounded OS-error context;
-none of those temporary outputs is retained as corpus material.
+compatibility claim. The exact-version Windows follow-up at `24cf688` passed
+an ordinary-authoring control and confirmed ADS source bytes by readback, then
+observed `System ERROR: Not implemented` while raw AES, `-sni`, and `-sns`
+were being authored. No corresponding archive existed for Rust to read, so the
+run contributed no raw-AES, NT-security, or ADS corpus evidence. None of the
+temporary control or host-authored outputs is retained as corpus material.
 
 ## Phase 4 external evidence
 

@@ -127,13 +127,13 @@ unknown packed and non-final sizes are rejected by `7zz` and remain typed Rust
 boundaries; and raw `AES256CBC` authoring fails with `E_NOTIMPL`. A `-snl`
 archive succeeds in both implementations. `-snh` produces an archive both can
 verify, but stock extraction on the observed macOS host does not recreate a
-hard-link relationship. The first checksum-pinned exact-26.02 Windows CI run
-rejected both `-sni` and `-sns` authoring with exit 2 and `System ERROR:`,
-so it produced no security-descriptor or alternate-stream archive for Rust to
-read. That observed environmental/oracle failure is not a compatibility claim.
-The revised probe adds separate inputs, ADS readback, an ordinary-authoring
-control, bounded error context, and a stage-drift assertion; its next Windows
-result remains evidence to review.
+hard-link relationship. A checksum-pinned exact-26.02 Windows follow-up at
+`24cf688` passed the ordinary-authoring control and Rust verification, and
+confirmed ADS source creation by byte-for-byte readback. That oracle then
+rejected raw AES, `-sni`, and `-sns` authoring with exit 2 and
+`System ERROR: Not implemented`, so it produced no corresponding archive for
+Rust to read. This narrows the observed oracle/environment result but remains
+neither a compatibility claim nor a confirmed Rust decoder gap.
 
 Candidate acceptance, warning, or rejection is not itself a format-validity
 claim. No capability row moves to supported without an accepted fixture,

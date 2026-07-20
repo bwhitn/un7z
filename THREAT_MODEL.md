@@ -318,13 +318,14 @@ are not trusted corpus inputs.
 On Windows CI, the black-box oracle installer is fetched from the pinned
 official 26.02 release URL, checked against its release SHA-256 before
 execution, and installed in an ephemeral runner directory. The test-only
-executable override is not read by production code. The job's `-sni` and `-sns`
-records are classification output only. The first reviewed run rejected both
-switches before creating an archive, so no feature bytes crossed into the Rust
-parser and no support claim followed. The revised probe separates the two
-inputs, verifies ADS creation by byte-for-byte readback, requires a no-switch
-control archive, retains bounded post-error context, and makes a stage change
-fail for explicit review. Oracle diagnostics are sanitized and bounded before
+executable override is not read by production code. The job's raw-AES, `-sni`,
+and `-sns` records are classification output only. In the hardened follow-up at
+`24cf688`, the no-switch control passed oracle and Rust verification and ADS
+creation passed byte-for-byte readback. All three candidate authoring commands
+then returned `System ERROR: Not implemented` before creating an archive, so
+no feature bytes crossed into the Rust parser and no support claim followed.
+The probe retains bounded post-error context and makes a stage change fail for
+explicit review. Oracle diagnostics are sanitized and bounded before
 publication in the CI summary.
 
 The generated property matrix has the same test-only boundary. It bounds its

@@ -443,11 +443,12 @@ separate valid or malformed corpus is available.
     The first output was reviewed on 2026-07-20: both authoring commands
     returned exit 2 with `System ERROR:`, so neither produced compatibility
     evidence.
-14. This post-merge review unit adds separate Windows security/ADS sources,
-    ADS readback, an ordinary authoring control, bounded post-error context,
-    stage-drift assertions, and a structured CI summary without changing a
-    runtime feature boundary. Its new Windows control and detailed error text
-    are not evidence until the updated job runs.
+14. The hardened follow-up at `24cf688` completed on 2026-07-20. The ordinary
+    control was authored, oracle-tested/extracted, and Rust-verified; ADS
+    creation passed byte-for-byte readback; and raw AES, `-sni`, and `-sns`
+    each returned `System ERROR: Not implemented` before producing an archive.
+    The full Rust workflow, including Miri, and the Python workflow passed.
+    These results change no runtime feature boundary.
 
 No binary oracle output or fuzzer working corpus is committed. Further
 compatibility work should use these generated/fuzz/coverage paths and retain a

@@ -88,36 +88,39 @@ metadata and therefore are not assigned stable hashes.
 
 ## Observed Windows 26.02 results
 
-The first repository Windows run completed on 2026-07-19 in GitHub Actions on
-Windows Server 2025. It used the checksum-pinned x64 installer and reported the
-exact banner `7-Zip 26.02 (x64)`. The six synthetic candidates matched the
-platform-neutral baseline above. The Windows-specific and host-authored
-results were:
+The first repository Windows run completed on 2026-07-19, but its diagnostic
+collector omitted the line following `System ERROR:`. The hardened follow-up
+completed on 2026-07-20 from commit `24cf688` in GitHub Actions run
+[`29776673106`](https://github.com/bwhitn/un7z/actions/runs/29776673106) on
+Windows Server 2025. It used the checksum-pinned x64 installer, reported the
+exact banner `7-Zip 26.02 (x64)`, passed the no-switch control and stage-drift
+assertions, and matched the six platform-neutral candidate baselines above.
+The reviewed Windows-specific and host-authored results were:
 
 | Probe | Author result | Oracle/Rust result | Interpretation |
 | --- | --- | --- | --- |
-| Raw `AES256CBC` | Rejected, exit 2, `System ERROR:` | Not run; no archive was produced | No raw-AES read evidence |
+| Windows no-switch control | Accepted | Oracle test/extract and Rust verification accepted two separate entries | Confirms that ordinary authoring and both readers worked in the same environment |
+| Raw `AES256CBC` | Rejected, exit 2, `System ERROR: Not implemented` | Not run; no archive was produced | No raw-AES read evidence |
 | Hard link | Accepted | Oracle test/extract and Rust verification accepted; same-file identity was unavailable to the test | No hard-link semantic-preservation claim |
 | Symbolic link | Not applicable | Not run | The hosted process could not create the required unprivileged source link |
-| NT security (`-sni`) | Rejected, exit 2, `System ERROR:` | Not run; no archive was produced | The runner did not produce a security-descriptor fixture; this is neither support nor proof that the format is invalid |
-| NTFS alternate streams (`-sns`) | Rejected, exit 2, `System ERROR:` | Not run; no archive was produced | ADS source creation completed, but the oracle did not produce a fixture; no ADS compatibility claim |
+| NT security (`-sni`) | Rejected, exit 2, `System ERROR: Not implemented` | Not run; no archive was produced | The oracle did not produce a security-descriptor fixture; this is neither support nor proof that the format is invalid |
+| NTFS alternate streams (`-sns`) | Rejected, exit 2, `System ERROR: Not implemented` | Not run; no archive was produced | ADS creation and byte-for-byte readback succeeded before authoring, but the oracle produced no fixture; no ADS compatibility claim |
 
-The original diagnostic collector retained only marker lines, so the text
-following each Windows `System ERROR:` was absent from that run. The revised
-probe uses separate security and ADS inputs, requires ADS byte-for-byte
-readback, first authors and verifies a no-switch Windows control archive,
-retains bounded post-marker context, and fails if the observed Windows stage
-baseline changes. Those revisions require a subsequent Windows run before
-their new control or detailed error text becomes evidence.
+The follow-up demonstrates that the ordinary authoring path and Rust reader
+were operational and that the ADS source existed with the expected bytes. The
+exact Windows 26.02 oracle nevertheless rejected raw AES, `-sni`, and `-sns`
+before producing an archive. This is evidence about that oracle build and CI
+host, not proof that every valid serialization is absent and not evidence of a
+Rust decoder gap. Host-authored temporary archives contain host metadata and
+are not assigned stable corpus hashes.
 
 ## Remaining probe work
 
-Review the next Windows summary to confirm the new control and capture the
-specific post-`System ERROR:` text. Positive NT-security or ADS work still
-requires an oracle-authored or permissibly sourced archive whose semantic
-metadata can be inspected. A raw `AES256CBC` read probe, a positive
-alternative-coder archive, or a semantic comment fixture may be added only
-when its bytes have an acceptable documented origin and redistribution status.
+Positive NT-security or ADS work still requires an oracle-authored or
+permissibly sourced archive whose semantic metadata can be inspected. A raw
+`AES256CBC` read probe, a positive alternative-coder archive, or a semantic
+comment fixture may be added only when its bytes have an acceptable documented
+origin and redistribution status.
 Multi-output coder support likewise remains a conditional implementation item
 until a valid stock-accepted method graph is available.
 

@@ -25,8 +25,10 @@ paths and make no automatic archive-name-based extraction decisions.
 A separate Windows capability job downloads the official stock 7-Zip 26.02
 x64 installer, verifies its release SHA-256 before execution, installs it only
 under the ephemeral runner directory, and runs the ignored `-sni`/`-sns`
-classification probes. The job emits evidence for review; no Windows semantic
-result is claimed until its output has been observed and recorded.
+classification probes. The 2026-07-20 follow-up at `24cf688` passed its
+ordinary-authoring control, Rust verification, ADS readback, and stage
+assertions. Raw AES, `-sni`, and `-sns` each stopped before archive creation
+with `System ERROR: Not implemented`; no semantic support is inferred.
 
 ## 32-bit
 
@@ -127,7 +129,7 @@ platform-neutral results are an asserted version-specific baseline. Windows
 CI additionally asserts a successful no-switch control and the reviewed
 `-sni`/`-sns` stage classifications, checks ADS byte readback before
 authoring, and publishes its bounded TSV diagnostics in the job summary. See
-`CAPABILITY_PROBES.md` for fixture hashes, the first Windows result, and
+`CAPABILITY_PROBES.md` for fixture hashes, the reviewed Windows results, and
 interpretation. Probe candidates are discovery evidence, not positive
 compatibility fixtures. The executable override is consumed only by this
 integration-test harness; production crates never inspect it or spawn the
