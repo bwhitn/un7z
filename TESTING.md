@@ -32,14 +32,20 @@ assertions. Raw AES, `-sni`, and `-sns` each stopped before archive creation
 with `System ERROR: Not implemented`; no semantic support is inferred. The
 generated suites accept the same test-only executable override and require the
 exact standalone or Windows 26.02 banner before authoring any fixture.
+The expanded job at `d1eabdf` passed all four generated core/property tests and
+both Phase 5 tests, and confirmed that the explicit Copy-to-AES author request
+is also rejected before archive creation.
 
 A separate Linux capability job downloads the official 26.02 x64 tarball,
 requires SHA-256
 `41aaba7b1235304ab5aa0624530c67ae829496cd29e875925271efdccc28c03e`,
 extracts only `7zz`, and publishes the structured capability report. The
 hard-link probe checks that Rust returns the expected bytes for both entries
-and records whether stock extraction preserves same-inode identity. Its first
-Linux result must be reviewed before the semantic stage is asserted.
+and records whether stock extraction preserves same-inode identity. The first
+reviewed run at `d1eabdf` passed both byte checks, while stock extraction
+reported `same-file=false`; it therefore establishes readable entries but not
+hard-link semantics. The symlink probe restored its relative target, and both
+raw-AES authoring forms returned `E_NOTIMPL` without creating an archive.
 
 ## 32-bit
 
@@ -143,8 +149,9 @@ CI additionally asserts a successful no-switch control and the reviewed
 authoring, and publishes its bounded TSV diagnostics in the job summary. See
 `CAPABILITY_PROBES.md` for fixture hashes, the reviewed Windows results, and
 interpretation. The Linux job reports raw-AES main/filter authoring and link
-semantics through the same bounded records. Probe candidates are discovery
-evidence, not positive compatibility fixtures. The executable override is consumed only by the
+semantics through the same bounded records. Its first reviewed result is
+recorded in that document. Probe candidates are discovery evidence, not
+positive compatibility fixtures. The executable override is consumed only by the
 generated differential and capability integration-test harnesses; production
 crates never inspect it or spawn the oracle.
 

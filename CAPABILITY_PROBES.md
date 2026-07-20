@@ -62,8 +62,8 @@ The `linux-7zip-capability` job independently downloads the official 26.02
 Linux x64 archive, requires SHA-256
 `41aaba7b1235304ab5aa0624530c67ae829496cd29e875925271efdccc28c03e`,
 extracts only `7zz`, and publishes the same structured report. Its first run
-must be reviewed before Linux hard-link semantics become compatibility
-evidence.
+was reviewed on 2026-07-20; the observed results are recorded below and do not
+establish hard-link relationship preservation.
 
 ## Observed macOS 26.02 results
 
@@ -100,6 +100,26 @@ These hashes identify ephemeral test construction, not committed corpus files
 or redistributed oracle material. `7zz`-authored link archives include host
 metadata and therefore are not assigned stable hashes.
 
+## Observed Linux 26.02 results
+
+The first checksum-pinned Linux run completed from commit `d1eabdf` in GitHub
+Actions run
+[`29787328152`](https://github.com/bwhitn/un7z/actions/runs/29787328152) on
+Ubuntu 24.04. It reported the exact standalone `7-Zip (z) 26.02 (x64)` banner
+and matched all six platform-neutral candidate baselines. The host-authored
+results were:
+
+| Probe | Author result | Oracle/Rust result | Interpretation |
+| --- | --- | --- | --- |
+| Raw `AES256CBC` main coder | Rejected, exit 2, `E_NOTIMPL` | Not run; no archive was produced | No raw-AES read evidence |
+| Copy-to-`AES256CBC` chain | Rejected, exit 2, `E_NOTIMPL` | Not run; no archive was produced | The explicit filter form supplies no additional fixture |
+| Hard link | Accepted | Oracle test/extract and Rust verification accepted; both Rust members matched the project-authored bytes, while oracle extraction reported `same-file=false` | Confirms two readable entries, not a preserved link relationship |
+| Symbolic link | Accepted | Oracle extraction restored the relative target; Rust verified both entries | Confirms the existing symlink compatibility evidence |
+
+The oracle listing exposed no hard-link field. As on macOS, the temporary
+archive therefore supplies positive entry-byte evidence but no semantic
+hard-link fixture. No host-authored archive or oracle binary was retained.
+
 ## Observed Windows 26.02 results
 
 The first repository Windows run completed on 2026-07-19, but its diagnostic
@@ -114,8 +134,8 @@ The reviewed Windows-specific and host-authored results were:
 | Probe | Author result | Oracle/Rust result | Interpretation |
 | --- | --- | --- | --- |
 | Windows no-switch control | Accepted | Oracle test/extract and Rust verification accepted two separate entries | Confirms that ordinary authoring and both readers worked in the same environment |
-| Raw `AES256CBC` | Rejected, exit 2, `System ERROR: Not implemented` | Not run; no archive was produced | No raw-AES read evidence; the Copy-chain form awaits the new CI runs |
-| Hard link | Accepted | Oracle test/extract and Rust verification accepted; same-file identity was unavailable to the test | No hard-link semantic-preservation claim |
+| Raw `AES256CBC` main and Copy-chain forms | Rejected, exit 2, `System ERROR: Not implemented` | Not run; no archive was produced | No raw-AES read evidence from either authoring form |
+| Hard link | Accepted | Oracle test/extract and Rust verification accepted; both Rust members matched the project-authored bytes, while same-file identity was unavailable to the test | No hard-link semantic-preservation claim |
 | Symbolic link | Not applicable | Not run | The hosted process could not create the required unprivileged source link |
 | NT security (`-sni`) | Rejected, exit 2, `System ERROR: Not implemented` | Not run; no archive was produced | Matches the shipped 26.02 manual's WIM-only authoring boundary; it is not a 7z compatibility gap |
 | NTFS alternate streams (`-sns`) | Rejected, exit 2, `System ERROR: Not implemented` | Not run; no archive was produced | ADS readback succeeded, but the shipped manual documents WIM-only storage; it is not a 7z compatibility gap |
@@ -130,6 +150,11 @@ checksum-verified Linux 26.02 package explicitly limits `-sni` and `-sns`
 storage to WIM, so those two switches are outside this 7z-only project.
 Host-authored temporary archives contain host metadata and are not assigned
 stable corpus hashes.
+
+The expanded checksum-pinned Windows job at `d1eabdf`, in the same run linked
+above, passed all four ignored `generated_oracle` core/property tests and both
+ignored Phase 5 tests. It also confirmed the Copy-chain raw-AES rejection. The
+generated archives were deleted and are not corpus files.
 
 ## Remaining probe work
 

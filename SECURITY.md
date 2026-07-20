@@ -248,12 +248,19 @@ marker/context lines and fails on a changed stage classification. Those test
 diagnostics and assertions neither admit a runtime feature nor weaken any
 hostile-input boundary.
 
+The expanded Windows job at `d1eabdf` also rejected the explicit Copy-to-AES
+authoring form and passed all four generated core/property tests plus both
+Phase 5 tests. Those generated cases still enter the normal hostile-input
+parser, checksum, resource, work, and cancellation paths.
+
 The Linux capability job applies the same checksum-before-execution boundary
 to the official 26.02 x64 tarball, extracts only the oracle executable, and
 deletes every generated archive with its temporary directory. The hard-link
 case now extracts both members through the production Rust API and requires
 their bytes to match before reporting `rust-read=accepted`; same-inode identity
-remains an oracle-host observation. The packaged 26.02 manual documents `-sni`
+remains an oracle-host observation. The first reviewed job passed both member
+checks but stock extraction reported `same-file=false`, so no filesystem-link
+claim follows. The packaged 26.02 manual documents `-sni`
 and `-sns` storage as WIM-only, so their Windows rejection does not justify
 adding an unrelated 7z parser path.
 

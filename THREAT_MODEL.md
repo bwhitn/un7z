@@ -329,12 +329,19 @@ The probe retains bounded post-error context and makes a stage change fail for
 explicit review. Oracle diagnostics are sanitized and bounded before
 publication in the CI summary.
 
+At `d1eabdf`, the same pinned Windows boundary also rejected the explicit
+Copy-to-AES request and passed all four generated core/property tests plus both
+Phase 5 tests. Passing the oracle does not mark those temporary archives
+trusted; production validation and resource accounting still apply.
+
 The Linux capability job independently pins the official 26.02 x64 tarball,
 extracts only `7zz`, and reports host link semantics without retaining the
 archive. A hard-link result is not accepted on the Rust side merely because
 archive verification succeeds: both logical entries must extract to the
 project-authored bytes. Same-inode restoration is kept separate because the
-core intentionally has no automatic filesystem extraction policy. The
+core intentionally has no automatic filesystem extraction policy. The first
+reviewed Linux job passed both byte checks but reported `same-file=false` after
+stock extraction, so it creates no link-recreation claim. The
 packaged oracle manual identifies NT security and ADS storage as WIM-only, so
 those switches do not expand this 7z parser's hostile-input surface.
 

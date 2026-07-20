@@ -190,9 +190,13 @@ were being authored. No corresponding archive existed for Rust to read, so the
 run contributed no raw-AES, NT-security, or ADS corpus evidence. None of the
 temporary control or host-authored outputs is retained as corpus material.
 The checksum-pinned Linux job runs the same ephemeral constructors so
-same-inode hard-link behavior can be observed on a capable host. The official
-26.02 manual files used to classify `-sni` and `-sns` as WIM-only are read from
-the verified release archive and are neither copied nor made corpus inputs.
+same-inode hard-link behavior can be observed on a capable host. Its first
+reviewed run at `d1eabdf` verified both Rust member byte streams but stock
+extraction reported `same-file=false`; no semantic hard-link corpus claim was
+created. The same run's Windows job passed all four generated core/property
+tests and both generated Phase 5 tests. The official 26.02 manual files used
+to classify `-sni` and `-sns` as WIM-only are read from the verified release
+archive and are neither copied nor made corpus inputs.
 
 ## Phase 4 external evidence
 

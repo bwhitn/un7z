@@ -138,6 +138,15 @@ source, SDK, or implementation from that package is copied or shipped. The
 new Linux workflow and Rust member-byte probe are original MIT OR Apache-2.0
 test code.
 
+The first checksum-pinned Linux and expanded Windows executions of that code
+completed at `d1eabdf` in GitHub Actions run `29787328152`. Linux reported
+matching Rust bytes for both hard-link entries, `same-file=false` after stock
+extraction, successful relative-symlink restoration, and no raw-AES archive
+from either authoring form. Windows passed all four generated core/property
+tests and both Phase 5 tests. These are black-box execution records; no
+generated archive, oracle binary, manual text, or implementation material was
+retained.
+
 The 2026-07-20 Windows-probe follow-up is original Rust and workflow code
 licensed MIT OR Apache-2.0. It separates project-authored security and ADS
 inputs, checks the project-authored ADS bytes through the host filesystem,
