@@ -16,7 +16,7 @@ following exact direct runtime dependencies; default features are disabled and
 | `bzip2-rs` | 0.1.2 | MIT OR Apache-2.0 | `rustc_1_37` | Safe Rust BZip2 decoder; `https://github.com/paolobarbolini/bzip2-rs` |
 | `brotli-decompressor` | 5.0.3 | BSD-3-Clause OR MIT | `std` | Brotli decoder; `https://github.com/dropbox/rust-brotli-decompressor` |
 | `lz4_flex` | 0.13.1 | MIT | `checked-decode`, `frame`, `safe-decode`, `safe-encode` | Safe checked LZ4-frame decoder; `https://github.com/pseitz/lz4_flex` |
-| `ruzstd` | 0.8.2 | MIT | `std` | Zstandard frame decoder; `https://github.com/KillingSpark/zstd-rs`; 0.8.3 was not selected because it requires Rust 1.87 above this project's MSRV |
+| `ruzstd` | 0.8.1 | MIT | `std` | Zstandard frame decoder; `https://github.com/KillingSpark/zstd-rs`; 0.8.2 uses APIs unavailable on Rust 1.85 and 0.8.3 requires Rust 1.87, so both exceed this project's tested MSRV |
 
 The complete normal/build transitive graph at this revision is:
 
@@ -121,6 +121,17 @@ for advisories, bans, licenses, and sources on 2026-07-18. Its exact
 is `(MIT OR Apache-2.0) AND NCSA`; the required NCSA term has an exact-version,
 fuzz-only exception in `fuzz/deny.exceptions.toml`. That exception is outside
 the runtime workspace and does not expand the runtime license allowlist.
+The fuzz package directly names `aes` 0.9.1 and `cbc` 0.2.1 only to author a
+deterministic direct-KDF AES decoder seed with a public test password. Those
+exact MIT OR Apache-2.0 packages were already present in the locked runtime
+graph, so this adds no package or runtime dependency and no license exception.
+After that direct-edge change, cargo-deny 0.20.2 again reported `advisories ok,
+bans ok, licenses ok, sources ok` for both the runtime workspace and the
+separately locked fuzz package on 2026-07-19.
+After pinning `ruzstd` 0.8.1 to retain Rust 1.85 compatibility, cargo-deny
+0.20.2 reported the same four successful checks for the runtime workspace,
+fuzz package, and Python binding on 2026-07-19. No transitive dependency
+changed; only the direct `ruzstd` version and checksum changed in each lockfile.
 `cargo-deny`, cargo-fuzz, cargo-llvm-cov, Miri, Rust toolchains, GitHub Actions,
 and `7zz` are development/test tools, not runtime dependencies. The local
 coverage/fuzz audit used cargo-llvm-cov 0.8.7 and cargo-fuzz 0.13.2 installed
@@ -194,7 +205,7 @@ embedded or generated-code licensing facts.
 | PPMd | safe, explicitly memory-bounded permissive implementation | In-tree adaptation of `stangelandcl/ppmd` v0.1.1 admitted; exact MIT provenance in `PROVENANCE.md` |
 | Brotli | safe permissive decoder | `brotli-decompressor` 5.0.3 admitted with unsafe feature disabled |
 | LZ4 | safe permissive decoder | `lz4_flex` 0.13.1 admitted with checked/safe frame features |
-| Zstd | safe permissive decoder | `ruzstd` 0.8.2 admitted with frame-window preflight and dictionaries rejected |
+| Zstd | safe permissive decoder | `ruzstd` 0.8.1 admitted with frame-window preflight and dictionaries rejected |
 | Python FFI | isolated adapter over the stable core | PyO3 0.29.0 admitted in `bindings/python`; no Python dependency enters the core workspace |
 
 ## Development-only 7zz rule
@@ -203,3 +214,21 @@ embedded or generated-code licensing facts.
 Runtime crates and the installed CLI must contain no command invocation or
 fallback path to `7zz`. Official 7-Zip and p7zip source must not be downloaded,
 vendored, read, or translated.
+
+The capability-probe integration test adds no dependency. It uses
+`std::process::Command`, the existing `sha2` dependency, and an installed
+exact-version `7zz` test oracle. No oracle executable or generated archive is
+packaged or committed.
+
+The Windows CI probe obtains the official 26.02 x64 installer from the
+`ip7z/7zip` GitHub release and checks the release-published SHA-256
+`6745fa76dc2ea031596d8678f6f6b99c3c1b435b4164a63485adbbc7b8d82ef0`
+before execution. It installs only inside the ephemeral runner and supplies
+the resulting `7z.exe` through the test-only `UN7Z_7ZZ` override. This is the
+explicitly permitted black-box oracle use, not a Cargo dependency, shipped
+tool, source input, runtime fallback, or runtime-license exception.
+
+The generated method/property matrix likewise adds no dependency or lockfile
+change. It uses `std::process::Command`, the existing `sha2` test use, and the
+installed exact-version oracle; all generated source and archive bytes remain
+in a uniquely named temporary directory that is removed after the test.

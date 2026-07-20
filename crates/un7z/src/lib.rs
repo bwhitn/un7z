@@ -76,7 +76,7 @@ pub use limits::{Limits, LimitsBuilder};
 pub use model::{
     ArchiveHeader, ArchiveVersion, BindPair, Coder, ExternalProperty, FileStream, FilesInfo,
     Folder, HeaderEnvelope, NextHeaderKind, PackStream, ParsedArchive, ParsedNextHeader,
-    StoredProperty, StreamsInfo, Substream,
+    PendingExternalFolderHeader, StoredProperty, StreamsInfo, Substream,
 };
 pub use model::{EntryKind, FileEntry};
 #[cfg(feature = "unstable-internals")]

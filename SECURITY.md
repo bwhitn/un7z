@@ -4,8 +4,8 @@
 
 This repository is pre-alpha. Phase 7 adds a Python adapter over the stable
 Rust API but decodes only the methods explicitly supported in
-`COMPATIBILITY.md`, resolves encoded and
-encrypted headers and supported external metadata, and reads bounded
+`COMPATIBILITY.md`, resolves encoded and encrypted headers, supported external
+folder definitions and metadata, and reads bounded
 sequential volumes. Passwords and KDF output are per archive and zeroized. The
 member reader holds one completely decoded folder in memory and reports that
 retained allocation. Do
@@ -82,7 +82,10 @@ parsing decoded header bytes, and folder/member CRCs before a high-level helper
 returns success. Encoded-header folders are accounted cumulatively before
 decode, every declared substream must consume its folder output exactly, and
 all substream CRCs succeed before the reconstructed header is parsed. CRC
-errors retain distinct typed scopes. A `MemberReader`
+errors retain distinct typed scopes. External folder definitions follow the
+same packed/folder/substream verification before their bytes reach the parser;
+the selected decoded folder output must contain exactly the declared folder
+records. A `MemberReader`
 caller can observe bytes before integrity is final and therefore must call
 `finish()`; dropping it never implies success.
 
@@ -139,11 +142,24 @@ before allocation and does not include uncharged hidden caches. Parser and
 encoded-header recursion is explicitly bounded. AES KDF power is checked before
 hashing; each KDF round is charged. Cancellation and work-budget checks occur
 between bounded volume/input reads and within long decoder/filter loops.
+External-folder resolution validates its AdditionalStreamsInfo model and
+folder-output `DataIndex` before decoding, charges all decoded outputs against
+the cumulative output limit, reparses from the original header under the same
+global count/property limits, and requires exact consumption of the selected
+output. It may retain those bounded outputs because later `DataIndex` values can
+refer to any folder. The bounded stored-header copy cannot exceed
+`max_header_bytes`.
 Supported LZMA decoding uses the output buffer itself as history. Third-party
 codec adapters conservatively charge their working window/block memory before
 decoder construction, bound output and input, and convert dependency panics to
-typed format failures. `Archive::verify` accounts each folder once against
-total output, and natural-order `extract_entries_to` does the same; one-member
+typed format failures. `Archive::verify` processes every additional folder,
+including unreferenced folders, before the main streams and drops each decoded
+additional output before continuing. Additional and main folders share the
+same total-output allowance, dictionary/KDF limits, per-archive password,
+work budget, and cancellation token. Packed, folder, logical-substream, and
+member CRCs retain distinct checksum scopes. Main-stream verification accounts
+each folder once against total output, and natural-order `extract_entries_to`
+does the same; one-member
 random access bounds the complete containing folder. Every known solid
 substream size is checked against the entry limit before folder decode. An
 unknown final substream is decoded only where the codec supports EOS and with
@@ -203,3 +219,32 @@ regressions therefore use deterministic hostile constructors, CRC-correct
 semantic mutation, exhaustive truncation/limit cases, and the six
 coverage-guided fuzz targets. Temporary `7zz` output supplies positive
 differential evidence only and is deleted after each opt-in test.
+
+The one retained oracle-authored compressed payload is a 49-byte test-only PPMd
+stream over project-authored text; `CORPUS.md` records its exact 7zz 26.02
+command, properties, CRC, and hashes. Production code does not invoke the
+oracle. Unit and public-API regressions require exact output and reject every
+strict packed prefix, meaningful corruption, low dictionary/output/work
+budgets, and pre-cancellation before the vector is admitted as positive
+evidence.
+
+The exact-version capability probes are classification tests, not validation
+shortcuts. Their observed `7zz` rejection of unknown packed and non-final sizes
+does not weaken Rust's checked-range policy, and Rust's ability to derive a
+bounded Copy output does not generalize EOS permission to another codec.
+Synthesized comment or alternative-coder candidates remain hostile input unless
+the normal parser, model, and decoder invariants accept them.
+
+The Windows oracle job verifies the official 26.02 installer SHA-256 before
+executing it and installs it only inside the ephemeral runner. Its executable
+override is read only by the ignored integration probe; no production library,
+CLI, binding, or runtime path can invoke the oracle.
+
+The generated method/property matrix is positive differential evidence, not an
+allocation or validation bypass. Requested dictionary/model sizes are asserted
+from the validated coder properties and remain subject to the normal configured
+limits before decoding. Its negative pass rejects packed corruption, strategic
+physical truncation, low dictionary/output/work budgets, and cancellation for
+every applicable generated form. CRC-correct plain-header mutations reach
+logical packed truncation and oversized/empty coder-property validation without
+disabling either header CRC. Its temporary archives are deleted.

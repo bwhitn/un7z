@@ -5,9 +5,10 @@ bounded byte parser, borrowed raw grammar, separate graph validator, semantic
 model validator, owned metadata model, arbitrary-graph executor, Go-parity
 decoders,
 crypto/password layer, sequential volume assembly, supported external metadata,
-and CRC-finalizing member APIs are implemented behind a curated public
-surface. A separately locked PyO3/maturin adapter exposes that surface without
-moving parser or decoder logic across the FFI boundary. Constant-memory
+external-folder resolution, and CRC-finalizing member APIs are implemented
+behind a curated public surface. A separately locked PyO3/maturin adapter
+exposes that surface without moving parser or decoder logic across the FFI
+boundary. Constant-memory
 decoder pipelines remain future work.
 
 ## Design goals
@@ -81,11 +82,21 @@ name is additional metadata and cannot replace the raw code units.
 
 The implemented model preserves inline names, times, attributes, StartPos,
 empty/anti flags, archive/comment/unknown properties, and external property
-definitions. `metadata.rs` decodes referenced AdditionalStreamsInfo folders,
-verifies folder/substream CRCs, and applies external Name, FILETIME, attribute,
-and StartPos values through exact bounded readers. External folder definitions
-remain typed unsupported. File-to-substream cardinality is exact and is
-resolved independently of path safety.
+definitions. `metadata.rs` provides the shared AdditionalStreamsInfo processor,
+verifies packed/folder/substream CRCs, and applies external Name, FILETIME,
+attribute, and StartPos values through exact bounded readers. Metadata
+resolution retains the decoded folder outputs because `DataIndex` may select
+any of them; archive verification instead consumes and drops one decoded folder
+before starting the next. For external main-folder
+definitions, the first parse validates AdditionalStreamsInfo and `DataIndex`,
+then stages a bounded copy of the stored header. The archive layer decodes each
+AdditionalStreamsInfo folder once, verifies its packed, folder, and substream
+CRCs, selects the indexed folder output, reparses exactly the declared folder
+count from that output, requires exact consumption, and revalidates the
+complete header. `DataIndex` selects a decoded folder output, not an individual
+logical substream. The same decoded outputs are reused for external file
+properties. File-to-substream cardinality is exact and is resolved independently
+of path safety.
 
 ### Stream graph
 
@@ -158,8 +169,13 @@ Current decoding is bounded but one-shot: one folder output is retained in a
 `Vec` and a `MemberReader` exposes bounded slices of that buffer while tracking
 the member CRC. LZMA uses this accounted output as history instead of allocating
 a second declared-size dictionary. This honors configured memory/output limits
-but is not a constant-memory decompression stream. `Archive::verify` decodes a
-solid folder once and verifies substreams in natural order.
+but is not a constant-memory decompression stream. `Archive::verify` first
+decodes every AdditionalStreamsInfo folder, including unreferenced folders,
+sequentially and verifies its packed, folder, and logical-substream CRCs. It
+drops each additional folder before decoding the next, then decodes each main
+solid folder once and verifies its substreams in natural order. Additional and
+main folders share the same total-output allowance, configured dictionary and
+KDF limits, per-archive password, work budget, and cancellation token.
 `Archive::extract_entries_to` follows the same one-decode-per-folder path and
 emits bounded chunks to a caller-owned `EntrySink`; it calls `finish_entry`
 only after that member CRC succeeds, and only after the containing folder CRC

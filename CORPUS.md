@@ -102,14 +102,89 @@ to a generated Copy archive to exercise bounded SFX discovery in both Rust and
 `7zz`; no 7-Zip SFX source or stub is copied. All source files and archives are
 deleted with their unique temporary directory.
 
-The exact command run on 2026-07-18 was:
+The exact-version property-matrix test adds 24 positive archives for bounded
+LZMA/LZMA2 dictionaries, LZMA probability properties, PPMd order/model memory,
+Delta distances, BZip2 block sizes, Deflate levels, filter/compressor chains,
+encrypted data and headers, and solid/non-solid four-entry layouts. It asserts
+the decoder-visible coder property bytes or packed stream markers so an
+accepted but normalized authoring switch cannot silently count as coverage.
+Each archive is then subjected to packed corruption, fixed/next/final physical
+truncation, output/work/cancellation limits, and applicable dictionary limits.
+For plain headers, CRC-correct mutations shorten the declared first packed
+stream and make a stored coder-property length oversized or empty; BZip2 also
+gets an invalid block-size byte. The matrix retains no binary output and adds
+no imported algorithm.
+
+The complete generated suite was last run on 2026-07-19 with:
 
 ```text
 cargo test -p un7z --test generated_oracle --all-features --locked -- --ignored
 ```
 
-All three tests passed with local `7zz` 26.02. These cases are reproducible
-test generation, not a committed binary corpus and not a runtime dependency.
+All four tests passed with local `7zz` 26.02 on 2026-07-19. These cases are
+reproducible test generation, not a committed binary corpus and not a runtime
+dependency.
+
+## In-process decoder fuzz seeds
+
+The excluded fuzz package now constructs 20 complete small archives on every
+run rather than retaining binary seed files. Profiles cover Copy, LZMA,
+three LZMA2 dictionary properties, Deflate, Deflate64, BZip2, PPMd, Brotli,
+LZ4, Zstandard, AES, reverse-declaration Copy, BCJ2, two filter/compressor
+chains, and three Delta distances. Input-derived plaintext is capped at 64
+bytes. The standalone `fuzz/tests/generated_seeds.rs` test verifies every
+profile and passes each of eight structured mutations through bounded public
+operations.
+
+Four embedded positive packed streams have fixed origin records:
+
+| Stream | Origin | Packed SHA-256 | Decoded SHA-256 |
+| --- | --- | --- | --- |
+| raw LZMA `abc` | XZ Utils 5.8.3 command recorded below | `ccc82e613efa67d15c8121ef469a49b37dcb67f40f1334c16479bc60d8b13482` | `ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad` |
+| BZip2 `hello\n` | `/usr/bin/bzip2` 1.0.8 over synthetic input | `8f2cf133c7cb64e1407f2dc51fe6a966755130de4c257b04e26d1a9a9c92354b` | `5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03` |
+| Brotli `hello\n` | `brotli-decompressor` 5.0.3 `src/reader.rs` regression, BSD-3-Clause OR MIT | `f79a3ca17dcda113ab64c08a1c3bf146bce590ab016cb0b3bcc1409946015efe` | `5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03` |
+| PPMd order 6, 64 KiB model | Stock `7zz` 26.02 black-box command recorded below over project-authored text | `b0cfcc58d1e9615d16a77f477bef20d7759e9307f6605a19ed925d6729733854` | `350151a2946bf4981f4980e49cc308bfb129f1fe4a9e1f8471d46545090a88c9` |
+
+The PPMd source is the 50-byte project-authored UTF-8 string
+`PPMd fuzz seed: alpha beta gamma delta 0123456789\n`. On 2026-07-19,
+`7-Zip (z) 26.02 (x64)` authored the ephemeral archive with:
+
+```text
+7zz a -t7z -m0=PPMd:o6:mem64k -mhc=off -mhe=off -bd -bb0 \
+  ppmd-o6-mem64k.7z seed.txt
+```
+
+`7zz t` succeeded. The serialized coder properties are
+`06 00 00 01 00` (order 6 and little-endian 65,536-byte model memory), the
+packed stream is 49 bytes, the decoded CRC-32 is `56B5ABF1`, and the ephemeral
+complete archive SHA-256 was
+`30d582cae58f45f206f4cad4fdbd5e112a7249e75c9781dc218ef8c5eac938b2`.
+Only the packed test vector is embedded; the complete archive is not retained
+in the repository. The executable was used only as a black-box test oracle,
+and no 7-Zip or p7zip implementation source was inspected or incorporated.
+
+The remaining packed records are generated deterministically from each bounded
+input using minimal stored/uncompressed frame grammar or RustCrypto AES-CBC.
+The password is a fixed public fuzz string. No generated archive is committed,
+so there is no static archive hash or redistribution artifact. These seeds are
+deep no-panic/decoder evidence; they do not add a compatibility claim without
+the separate oracle fixtures and corruption tests.
+
+## Corpus-free capability probes
+
+`crates/un7z/tests/capability_probe.rs` constructs six deterministic,
+CRC-correct Copy candidates for comments, an alternative coder declaration,
+and unknown-size boundaries. It also asks exact stock `7zz` 26.02 to author
+temporary raw-AES, hard-link, symlink, and platform metadata cases. The test
+emits structured author/oracle/Rust outcomes and SHA-256 values, then deletes
+its unique temporary directory. No resulting archive is committed or treated
+as redistributable corpus material.
+
+The observed candidate hashes, warnings, errors, and platform limitations are
+recorded in `CAPABILITY_PROBES.md`. Synthetic rejection cannot prove that no
+valid form exists, and acceptance without visible semantics cannot establish a
+compatibility claim. Windows NT security and ADS evidence remains pending an
+exact-version Windows run.
 
 ## Phase 4 external evidence
 

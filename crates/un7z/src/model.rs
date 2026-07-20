@@ -136,6 +136,10 @@ impl ParsedArchive {
     pub const fn next_header(&self) -> &ParsedNextHeader {
         &self.next_header
     }
+
+    pub(crate) fn into_parts(self) -> (HeaderEnvelope, ParsedNextHeader) {
+        (self.envelope, self.next_header)
+    }
 }
 
 /// The validated form of a plain or encoded stored next header.
@@ -146,6 +150,50 @@ pub enum ParsedNextHeader {
     Header(ArchiveHeader),
     /// A validated stream descriptor whose decoded bytes contain the real header.
     EncodedHeader(StreamsInfo),
+    /// A plain header whose main folder records reside in an additional stream.
+    ///
+    /// This staging form is exposed only with the documentation-hidden
+    /// `unstable-internals` feature. [`crate::Archive`] resolves it before
+    /// returning an archive session.
+    PendingExternalFolders(PendingExternalFolderHeader),
+}
+
+/// A validated staging record for externally stored main-folder definitions.
+///
+/// The additional streams and data index are validated before any decoder is
+/// entered. The bounded header copy is reparsed after the selected additional
+/// folder output has been decoded and checksum-verified.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingExternalFolderHeader {
+    additional_streams: StreamsInfo,
+    data_index: u64,
+    header_bytes: Box<[u8]>,
+}
+
+impl PendingExternalFolderHeader {
+    pub(crate) const fn new(
+        additional_streams: StreamsInfo,
+        data_index: u64,
+        header_bytes: Box<[u8]>,
+    ) -> Self {
+        Self {
+            additional_streams,
+            data_index,
+            header_bytes,
+        }
+    }
+
+    pub(crate) const fn additional_streams(&self) -> &StreamsInfo {
+        &self.additional_streams
+    }
+
+    pub(crate) const fn data_index(&self) -> u64 {
+        self.data_index
+    }
+
+    pub(crate) const fn header_bytes(&self) -> &[u8] {
+        &self.header_bytes
+    }
 }
 
 /// A validated plain archive header.

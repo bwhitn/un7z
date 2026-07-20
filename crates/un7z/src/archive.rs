@@ -7,7 +7,10 @@ use crate::{
     checksum::Crc32,
     decode::METHOD_AES,
     execute::{DecodedFolder, decode_folder},
-    metadata::resolve_external_properties,
+    metadata::{
+        apply_external_properties, decode_additional_streams, resolve_external_properties,
+        verify_additional_streams,
+    },
     model::{
         ArchiveHeader, BindPair, Coder, ExternalProperty, FileEntry, FilesInfo, Folder,
         HeaderEnvelope, PackStream, ParsedNextHeader, StoredProperty, StreamsInfo, Substream,
@@ -16,7 +19,10 @@ use crate::{
         CONTROL_CHUNK_SIZE, ParseControl, check_limit, format_error, try_reserve, u64_to_usize,
         usize_to_u64,
     },
-    parser::{archive_declares_more_bytes, parse_archive, parse_decoded_next_header},
+    parser::{
+        archive_declares_more_bytes, parse_archive, parse_decoded_next_header,
+        parse_next_header_from_external_folders,
+    },
     password::Password,
     volume::{
         PathVolumeProvider, VolumeProvider, VolumeTermination, read_sequential_volumes,
@@ -291,8 +297,7 @@ impl Archive {
         budget: &mut WorkBudget,
     ) -> Result<Self> {
         let parsed = parse_archive(&bytes, limits, cancellation, budget)?;
-        let envelope = parsed.envelope();
-        let mut next_header = parsed.next_header().clone();
+        let (envelope, mut next_header) = parsed.into_parts();
         let mut depth = 0_u64;
         let mut decoded_header_bytes = 0_u64;
         loop {
@@ -374,6 +379,66 @@ impl Archive {
                     )?;
                     parse_decoded_next_header(&decoded, envelope, &bytes, limits, &mut control)
                         .map_err(|error| map_encrypted_error(error, encrypted))?
+                }
+                ParsedNextHeader::PendingExternalFolders(pending) => {
+                    depth = depth.checked_add(1).ok_or_else(|| {
+                        format_error("external-folder resolution depth overflows")
+                    })?;
+                    check_limit(
+                        depth,
+                        limits.max_recursion_depth(),
+                        LimitKind::RecursionDepth,
+                    )?;
+                    let remaining_output = limits
+                        .max_total_output_bytes()
+                        .checked_sub(decoded_header_bytes)
+                        .ok_or_else(|| {
+                            format_error("external-folder output accounting underflows")
+                        })?;
+                    let mut control = ParseControl::new(cancellation, budget);
+                    let decoded = decode_additional_streams(
+                        &bytes,
+                        pending.additional_streams(),
+                        password.as_ref(),
+                        limits,
+                        remaining_output,
+                        &mut control,
+                    )?;
+                    decoded_header_bytes = decoded_header_bytes
+                        .checked_add(decoded.total_bytes())
+                        .ok_or_else(|| {
+                            format_error("external-folder output accounting overflows")
+                        })?;
+                    check_limit(
+                        decoded_header_bytes,
+                        limits.max_total_output_bytes(),
+                        LimitKind::TotalOutputBytes,
+                    )?;
+                    let folder_stream = decoded.get(pending.data_index())?;
+                    let encrypted = folder_stream.encrypted();
+                    let resolved = parse_next_header_from_external_folders(
+                        pending.header_bytes(),
+                        pending.data_index(),
+                        folder_stream.bytes(),
+                        envelope,
+                        &bytes,
+                        limits,
+                        &mut control,
+                    )
+                    .map_err(|error| map_encrypted_error(error, encrypted))?;
+                    let ParsedNextHeader::Header(mut header) = resolved else {
+                        return Err(format_error(
+                            "external folder resolution did not produce a plain header",
+                        ));
+                    };
+                    apply_external_properties(&mut header, &decoded, limits, &mut control)?;
+                    return Self::from_parts(
+                        bytes.into_boxed_slice(),
+                        envelope,
+                        header,
+                        limits,
+                        password,
+                    );
                 }
             };
         }
@@ -627,14 +692,27 @@ impl Archive {
         Ok(written)
     }
 
-    /// Decodes every file stream and verifies every applicable folder/member
-    /// CRC. Streamless directories and anti-items contain no bytes to verify.
+    /// Decodes every additional and file stream and verifies every applicable
+    /// packed-stream, folder, substream, and member CRC. Streamless directories
+    /// and anti-items contain no bytes to verify.
     ///
     /// # Errors
     ///
     /// Returns the first typed parsing-model, compatibility, decoder, limit,
     /// cancellation, password, I/O, or checksum failure.
     pub fn verify(&self, cancellation: &CancellationToken, budget: &mut WorkBudget) -> Result<()> {
+        let mut total_output = 0_u64;
+        if let Some(additional_streams) = self.header.additional_streams() {
+            let mut control = ParseControl::new(cancellation, budget);
+            total_output = verify_additional_streams(
+                &self.bytes,
+                additional_streams,
+                self.password.as_ref(),
+                self.limits,
+                self.limits.max_total_output_bytes(),
+                &mut control,
+            )?;
+        }
         let Some(streams) = self.header.main_streams() else {
             return Ok(());
         };
@@ -643,7 +721,6 @@ impl Archive {
             .iter()
             .enumerate()
             .filter(|(_, member)| member.has_stream());
-        let mut total_output = 0_u64;
         for (folder_index, folder) in streams.folders().iter().enumerate() {
             cancellation.check()?;
             let remaining = self
@@ -1699,6 +1776,11 @@ mod tests {
         sync::atomic::{AtomicU64, Ordering},
     };
 
+    use aes::{
+        Aes256,
+        cipher::{Block, BlockModeEncrypt, KeyIvInit},
+    };
+
     use super::{Archive, EntrySink};
     use crate::{
         CancellationToken, ChecksumScope, Error, LimitKind, Limits, MemoryVolumeProvider, Result,
@@ -2237,6 +2319,10 @@ mod tests {
         let cleanup = fs::remove_file(&path);
         let output = result.map_err(Error::Io)?;
         cleanup.map_err(Error::Io)?;
+        if !output.status.success() {
+            eprintln!("7zz stdout:\n{}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("7zz stderr:\n{}", String::from_utf8_lossy(&output.stderr));
+        }
         Ok(output.status.success())
     }
 
@@ -2352,6 +2438,340 @@ mod tests {
         archive_with_payload_and_next_header(name_stream, &header)
     }
 
+    struct AdditionalFixture<'data> {
+        packed: &'data [u8],
+        unpacked_size: u64,
+        folder_definition: &'data [u8],
+        packed_crc: Option<u32>,
+        folder_crc: Option<u32>,
+        substream_crc: Option<u32>,
+    }
+
+    fn unreferenced_additional_archive(
+        fixture: AdditionalFixture<'_>,
+        member: Option<&[u8]>,
+    ) -> Result<Vec<u8>> {
+        if fixture.folder_crc.is_some() && fixture.substream_crc.is_some() {
+            return Err(crate::parse_util::format_error(
+                "test additional stream cannot declare both folder and explicit substream CRCs",
+            ));
+        }
+        let packed_size = usize_to_u64(
+            fixture.packed.len(),
+            "test additional packed size is not representable as u64",
+        )?;
+        let mut header = Vec::from([0x01, 0x03, 0x06]);
+        push_small_uint(&mut header, 0)?;
+        push_small_uint(&mut header, 1)?;
+        header.push(0x09);
+        push_small_uint(&mut header, packed_size)?;
+        if let Some(crc) = fixture.packed_crc {
+            header.extend_from_slice(&[0x0a, 1]);
+            header.extend_from_slice(&crc.to_le_bytes());
+        }
+        header.extend_from_slice(&[0x00, 0x07, 0x0b, 1, 0]);
+        header.extend_from_slice(fixture.folder_definition);
+        header.push(0x0c);
+        push_small_uint(&mut header, fixture.unpacked_size)?;
+        if let Some(crc) = fixture.folder_crc {
+            header.extend_from_slice(&[0x0a, 1]);
+            header.extend_from_slice(&crc.to_le_bytes());
+        }
+        header.push(0x00);
+        if let Some(crc) = fixture.substream_crc {
+            header.extend_from_slice(&[0x08, 0x0a, 1]);
+            header.extend_from_slice(&crc.to_le_bytes());
+            header.push(0x00);
+        }
+        header.push(0x00);
+        if let Some(member) = member {
+            let member_size =
+                usize_to_u64(member.len(), "test member size is not representable as u64")?;
+            let member_crc = Crc32::checksum(member)?;
+            header.extend_from_slice(&[0x04, 0x06]);
+            push_small_uint(&mut header, packed_size)?;
+            push_small_uint(&mut header, 1)?;
+            header.push(0x09);
+            push_small_uint(&mut header, member_size)?;
+            header.extend_from_slice(&[0x0a, 1]);
+            header.extend_from_slice(&member_crc.to_le_bytes());
+            header.extend_from_slice(&[0x00, 0x07, 0x0b, 1, 0, 1, 1, 0, 0x0c]);
+            push_small_uint(&mut header, member_size)?;
+            header.extend_from_slice(&[0x0a, 1]);
+            header.extend_from_slice(&member_crc.to_le_bytes());
+            header.extend_from_slice(&[0x00, 0x00, 0x05, 0x01, 0x00]);
+        }
+        header.push(0x00);
+
+        let member_bytes = match member {
+            Some(bytes) => bytes,
+            None => &[],
+        };
+        let capacity = fixture
+            .packed
+            .len()
+            .checked_add(member_bytes.len())
+            .ok_or_else(|| crate::parse_util::format_error("test payload size overflows"))?;
+        let mut payload = Vec::new();
+        payload
+            .try_reserve_exact(capacity)
+            .map_err(|_| crate::parse_util::format_error("test payload allocation failed"))?;
+        payload.extend_from_slice(fixture.packed);
+        payload.extend_from_slice(member_bytes);
+        archive_with_payload_and_next_header(&payload, &header)
+    }
+
+    fn direct_aes_test_block(plaintext: &[u8], password: &str) -> Result<[u8; 16]> {
+        let mut key = [0_u8; 32];
+        let password_bytes = password.as_bytes();
+        if password_bytes.len() != 1 {
+            return Err(crate::parse_util::format_error(
+                "test AES password must contain one ASCII byte",
+            ));
+        }
+        let password_byte = password_bytes
+            .first()
+            .copied()
+            .ok_or_else(|| crate::parse_util::format_error("test AES password is empty"))?;
+        key[0] = password_byte;
+        let iv = [0_u8; 16];
+        let mut ciphertext = [0_u8; 16];
+        ciphertext
+            .get_mut(..plaintext.len())
+            .ok_or_else(|| crate::parse_util::format_error("test AES plaintext is too long"))?
+            .copy_from_slice(plaintext);
+        let mut encryptor = cbc::Encryptor::<Aes256>::new_from_slices(&key, &iv)
+            .map_err(|_| crate::parse_util::format_error("test AES key or IV is invalid"))?;
+        let block: &mut Block<cbc::Encryptor<Aes256>> = ciphertext
+            .as_mut_slice()
+            .try_into()
+            .map_err(|_| crate::parse_util::format_error("test AES block is invalid"))?;
+        encryptor.encrypt_block(block);
+        Ok(ciphertext)
+    }
+
+    fn encrypted_unreferenced_additional_archive(password: &str) -> Result<Vec<u8>> {
+        const ADDITIONAL: &[u8] = b"aux";
+        const AES_FOLDER: &[u8] = &[1, 0x24, 0x06, 0xf1, 0x07, 0x01, 2, 0x3f, 0];
+        let ciphertext = direct_aes_test_block(ADDITIONAL, password)?;
+        unreferenced_additional_archive(
+            AdditionalFixture {
+                packed: &ciphertext,
+                unpacked_size: usize_to_u64(
+                    ADDITIONAL.len(),
+                    "test additional output size is not representable as u64",
+                )?,
+                folder_definition: AES_FOLDER,
+                packed_crc: Some(Crc32::checksum(&ciphertext)?),
+                folder_crc: Some(Crc32::checksum(ADDITIONAL)?),
+                substream_crc: None,
+            },
+            Some(b"payload"),
+        )
+    }
+
+    fn copy_unreferenced_additional_archive(
+        packed_crc: Option<u32>,
+        folder_crc: Option<u32>,
+        substream_crc: Option<u32>,
+    ) -> Result<Vec<u8>> {
+        const ADDITIONAL: &[u8] = b"aux";
+        unreferenced_additional_archive(
+            AdditionalFixture {
+                packed: ADDITIONAL,
+                unpacked_size: usize_to_u64(
+                    ADDITIONAL.len(),
+                    "test additional output size is not representable as u64",
+                )?,
+                folder_definition: &[1, 1, 0],
+                packed_crc,
+                folder_crc,
+                substream_crc,
+            },
+            Some(b"payload"),
+        )
+    }
+
+    fn split_across_additional_and_header(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
+        let first_end = 33_usize;
+        let second_end = bytes
+            .len()
+            .checked_sub(1)
+            .ok_or_else(|| crate::parse_util::format_error("test archive is empty"))?;
+        if second_end <= first_end {
+            return Err(crate::parse_util::format_error(
+                "test archive is too short for three volume parts",
+            ));
+        }
+        let first = bytes
+            .get(..first_end)
+            .ok_or_else(|| crate::parse_util::format_error("test first volume is out of range"))?;
+        let second = bytes
+            .get(first_end..second_end)
+            .ok_or_else(|| crate::parse_util::format_error("test second volume is out of range"))?;
+        let third = bytes
+            .get(second_end..)
+            .ok_or_else(|| crate::parse_util::format_error("test third volume is out of range"))?;
+        Ok(vec![first.to_vec(), second.to_vec(), third.to_vec()])
+    }
+
+    fn external_folder_archive(
+        folder_definition: &[u8],
+        data_index: u64,
+        first_substream_crc: Option<u32>,
+        additional_folder_crc: Option<u32>,
+    ) -> Result<Vec<u8>> {
+        const MEMBER: &[u8] = b"payload";
+        let folder_size = usize_to_u64(
+            folder_definition.len(),
+            "test external-folder size is not representable as u64",
+        )?;
+        let additional_size = folder_size;
+        let member_size =
+            usize_to_u64(MEMBER.len(), "test member size is not representable as u64")?;
+        let additional_crc = Crc32::checksum(folder_definition)?;
+        let member_crc = Crc32::checksum(MEMBER)?;
+
+        let mut header = Vec::from([0x01, 0x03, 0x06]);
+        push_small_uint(&mut header, 0)?;
+        push_small_uint(&mut header, 1)?;
+        header.push(0x09);
+        push_small_uint(&mut header, additional_size)?;
+        header.extend_from_slice(&[0x0a, 1]);
+        header.extend_from_slice(&additional_crc.to_le_bytes());
+        header.extend_from_slice(&[0x00, 0x07, 0x0b, 1, 0, 1, 1, 0, 0x0c]);
+        push_small_uint(&mut header, additional_size)?;
+        if first_substream_crc.is_none() {
+            header.extend_from_slice(&[0x0a, 1]);
+            header.extend_from_slice(
+                &additional_folder_crc
+                    .unwrap_or(additional_crc)
+                    .to_le_bytes(),
+            );
+        }
+        header.push(0x00);
+        if let Some(crc) = first_substream_crc {
+            header.extend_from_slice(&[0x08, 0x0a, 1]);
+            header.extend_from_slice(&crc.to_le_bytes());
+            header.push(0x00);
+        }
+        header.extend_from_slice(&[0x00, 0x04, 0x06]);
+        push_small_uint(&mut header, additional_size)?;
+        push_small_uint(&mut header, 1)?;
+        header.push(0x09);
+        push_small_uint(&mut header, member_size)?;
+        header.extend_from_slice(&[0x0a, 1]);
+        header.extend_from_slice(&member_crc.to_le_bytes());
+        header.extend_from_slice(&[0x00, 0x07, 0x0b, 1, 1]);
+        push_small_uint(&mut header, data_index)?;
+        header.push(0x0c);
+        push_small_uint(&mut header, member_size)?;
+        header.extend_from_slice(&[0x0a, 1]);
+        header.extend_from_slice(&member_crc.to_le_bytes());
+        header.extend_from_slice(&[
+            0x00, 0x00, 0x05, 0x01, 0x11, 0x05, 0x00, b'x', 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]);
+
+        let mut payload = Vec::new();
+        payload.extend_from_slice(folder_definition);
+        payload.extend_from_slice(MEMBER);
+        archive_with_payload_and_next_header(&payload, &header)
+    }
+
+    fn second_external_folder_archive() -> Result<Vec<u8>> {
+        const FIRST: &[u8] = &[b'x', 0, 0, 0];
+        const FOLDER_DEFINITION: &[u8] = &[1, 1, 0];
+        const MEMBER: &[u8] = b"payload";
+        let first_size = usize_to_u64(
+            FIRST.len(),
+            "test first additional-stream size is not representable as u64",
+        )?;
+        let folder_size = usize_to_u64(
+            FOLDER_DEFINITION.len(),
+            "test external-folder size is not representable as u64",
+        )?;
+        let additional_size = first_size
+            .checked_add(folder_size)
+            .ok_or_else(|| crate::parse_util::format_error("test additional size overflows"))?;
+        let member_size =
+            usize_to_u64(MEMBER.len(), "test member size is not representable as u64")?;
+        let first_crc = Crc32::checksum(FIRST)?;
+        let folder_crc = Crc32::checksum(FOLDER_DEFINITION)?;
+        let member_crc = Crc32::checksum(MEMBER)?;
+
+        let mut header = Vec::from([0x01, 0x03, 0x06, 0, 2, 0x09]);
+        push_small_uint(&mut header, first_size)?;
+        push_small_uint(&mut header, folder_size)?;
+        header.extend_from_slice(&[0x0a, 1]);
+        header.extend_from_slice(&first_crc.to_le_bytes());
+        header.extend_from_slice(&folder_crc.to_le_bytes());
+        header.extend_from_slice(&[0x00, 0x07, 0x0b, 2, 0]);
+        header.extend_from_slice(&[1, 1, 0, 1, 1, 0, 0x0c]);
+        push_small_uint(&mut header, first_size)?;
+        push_small_uint(&mut header, folder_size)?;
+        header.extend_from_slice(&[0x0a, 1]);
+        header.extend_from_slice(&first_crc.to_le_bytes());
+        header.extend_from_slice(&folder_crc.to_le_bytes());
+        header.extend_from_slice(&[0x00, 0x00, 0x04, 0x06]);
+        push_small_uint(&mut header, additional_size)?;
+        push_small_uint(&mut header, 1)?;
+        header.push(0x09);
+        push_small_uint(&mut header, member_size)?;
+        header.extend_from_slice(&[0x0a, 1]);
+        header.extend_from_slice(&member_crc.to_le_bytes());
+        header.extend_from_slice(&[0x00, 0x07, 0x0b, 1, 1, 1, 0x0c]);
+        push_small_uint(&mut header, member_size)?;
+        header.extend_from_slice(&[0x0a, 1]);
+        header.extend_from_slice(&member_crc.to_le_bytes());
+        header.extend_from_slice(&[0x00, 0x00, 0x05, 0x01, 0x11, 0x02, 1, 0, 0x00, 0x00]);
+
+        let mut payload = Vec::new();
+        payload.extend_from_slice(FIRST);
+        payload.extend_from_slice(FOLDER_DEFINITION);
+        payload.extend_from_slice(MEMBER);
+        archive_with_payload_and_next_header(&payload, &header)
+    }
+
+    fn encrypted_external_folder_archive(password: &str) -> Result<Vec<u8>> {
+        encrypted_external_folder_archive_with_main_position(password, 16)
+    }
+
+    fn encrypted_external_folder_archive_with_main_position(
+        password: &str,
+        main_pack_position: u64,
+    ) -> Result<Vec<u8>> {
+        const FOLDER_DEFINITION: &[u8] = &[1, 1, 0];
+        const MEMBER: &[u8] = b"payload";
+        let ciphertext = direct_aes_test_block(FOLDER_DEFINITION, password)?;
+
+        let member_size =
+            usize_to_u64(MEMBER.len(), "test member size is not representable as u64")?;
+        let folder_crc = Crc32::checksum(FOLDER_DEFINITION)?;
+        let member_crc = Crc32::checksum(MEMBER)?;
+        let mut header = Vec::from([0x01, 0x03, 0x06, 0, 1, 0x09, 16, 0x0a, 1]);
+        header.extend_from_slice(&Crc32::checksum(&ciphertext)?.to_le_bytes());
+        header.extend_from_slice(&[0x00, 0x07, 0x0b, 1, 0, 1, 0x24]);
+        header.extend_from_slice(&[0x06, 0xf1, 0x07, 0x01, 2, 0x3f, 0, 0x0c, 3, 0x0a, 1]);
+        header.extend_from_slice(&folder_crc.to_le_bytes());
+        header.extend_from_slice(&[0x00, 0x00, 0x04, 0x06]);
+        push_small_uint(&mut header, main_pack_position)?;
+        header.extend_from_slice(&[1, 0x09]);
+        push_small_uint(&mut header, member_size)?;
+        header.extend_from_slice(&[0x0a, 1]);
+        header.extend_from_slice(&member_crc.to_le_bytes());
+        header.extend_from_slice(&[0x00, 0x07, 0x0b, 1, 1, 0, 0x0c]);
+        push_small_uint(&mut header, member_size)?;
+        header.extend_from_slice(&[0x0a, 1]);
+        header.extend_from_slice(&member_crc.to_le_bytes());
+        header.extend_from_slice(&[
+            0x00, 0x00, 0x05, 0x01, 0x11, 0x05, 0x00, b'x', 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]);
+
+        let mut payload = Vec::from(ciphertext);
+        payload.extend_from_slice(MEMBER);
+        archive_with_payload_and_next_header(&payload, &header)
+    }
+
     #[test]
     fn finish_and_high_level_extraction_reject_bad_member_crc() -> Result<()> {
         let data = b"copy member";
@@ -2401,6 +2821,418 @@ mod tests {
             Archive::open_bytes(trailing, Limits::default(), &cancellation, &mut budget,),
             Err(Error::Format { .. })
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn production_open_resolves_external_folder_stream_exactly() -> Result<()> {
+        let bytes = external_folder_archive(&[1, 1, 0], 0, None, None)?;
+        let cancellation = CancellationToken::new();
+        let mut budget = WorkBudget::unlimited();
+        let archive = Archive::open_bytes(bytes, Limits::default(), &cancellation, &mut budget)?;
+        let entry = archive
+            .entries()
+            .first()
+            .ok_or_else(|| crate::parse_util::format_error("external-folder entry is missing"))?;
+        assert_eq!(entry.raw_name(), Some(&[u16::from(b'x')][..]));
+        assert_eq!(entry.size(), Some(7));
+        let mut budget = WorkBudget::unlimited();
+        assert_eq!(
+            archive.extract_entry(0, &cancellation, &mut budget)?,
+            b"payload"
+        );
+
+        let mut budget = WorkBudget::unlimited();
+        let archive = Archive::open_bytes(
+            second_external_folder_archive()?,
+            Limits::default(),
+            &cancellation,
+            &mut budget,
+        )?;
+        assert_eq!(
+            archive.entries().first().and_then(FileEntry::raw_name),
+            Some(&[u16::from(b'x')][..])
+        );
+        let mut budget = WorkBudget::unlimited();
+        assert_eq!(
+            archive.extract_entry(0, &cancellation, &mut budget)?,
+            b"payload"
+        );
+        let mut budget = WorkBudget::unlimited();
+        archive.verify(&cancellation, &mut budget)?;
+        Ok(())
+    }
+
+    #[test]
+    fn external_folder_stream_rejects_truncation_trailing_bytes_and_bad_index() -> Result<()> {
+        let cancellation = CancellationToken::new();
+        for folder_definition in [&[1, 1][..], &[1, 1, 0, 0][..]] {
+            let bytes = external_folder_archive(folder_definition, 0, None, None)?;
+            let mut budget = WorkBudget::unlimited();
+            assert!(matches!(
+                Archive::open_bytes(bytes, Limits::default(), &cancellation, &mut budget),
+                Err(Error::Format { .. })
+            ));
+        }
+
+        let bytes = external_folder_archive(&[1, 1, 0], 1, None, None)?;
+        let mut budget = WorkBudget::unlimited();
+        assert!(matches!(
+            Archive::open_bytes(bytes, Limits::default(), &cancellation, &mut budget),
+            Err(Error::Format { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn every_external_folder_archive_prefix_is_rejected() -> Result<()> {
+        let bytes = second_external_folder_archive()?;
+        let cancellation = CancellationToken::new();
+        for end in 0..bytes.len() {
+            let prefix = bytes.get(..end).ok_or_else(|| {
+                crate::parse_util::format_error("external-folder prefix is out of range")
+            })?;
+            let mut budget = WorkBudget::unlimited();
+            assert!(
+                Archive::open_bytes(
+                    prefix.to_vec(),
+                    Limits::default(),
+                    &cancellation,
+                    &mut budget,
+                )
+                .is_err(),
+                "prefix {end} unexpectedly opened",
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn external_folder_stream_verifies_folder_and_substream_crcs() -> Result<()> {
+        let folder_definition = [1, 1, 0];
+        let cancellation = CancellationToken::new();
+        let bytes = external_folder_archive(
+            &folder_definition,
+            0,
+            Some(Crc32::checksum(&folder_definition)? ^ 1),
+            None,
+        )?;
+        let mut budget = WorkBudget::unlimited();
+        assert!(matches!(
+            Archive::open_bytes(bytes, Limits::default(), &cancellation, &mut budget),
+            Err(Error::Checksum {
+                scope: ChecksumScope::AdditionalStream,
+                member_index: None,
+            })
+        ));
+
+        let bytes = external_folder_archive(
+            &folder_definition,
+            0,
+            None,
+            Some(Crc32::checksum(b"wrong")?),
+        )?;
+        let mut budget = WorkBudget::unlimited();
+        assert!(matches!(
+            Archive::open_bytes(bytes, Limits::default(), &cancellation, &mut budget),
+            Err(Error::Checksum {
+                scope: ChecksumScope::Folder,
+                member_index: None,
+            })
+        ));
+
+        let mut bytes = external_folder_archive(&folder_definition, 0, None, None)?;
+        let packed_byte = bytes.get_mut(32).ok_or_else(|| {
+            crate::parse_util::format_error("external-folder packed byte is missing")
+        })?;
+        *packed_byte ^= 1;
+        let mut budget = WorkBudget::unlimited();
+        assert!(matches!(
+            Archive::open_bytes(bytes, Limits::default(), &cancellation, &mut budget),
+            Err(Error::Checksum {
+                scope: ChecksumScope::PackedStream,
+                member_index: None,
+            })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn external_folder_stream_enforces_combined_coder_and_output_limits() -> Result<()> {
+        let bytes = external_folder_archive(&[1, 1, 0], 0, None, None)?;
+        let cancellation = CancellationToken::new();
+        let limits = Limits::builder().max_total_coders(1).build();
+        let mut budget = WorkBudget::unlimited();
+        assert!(matches!(
+            Archive::open_bytes(bytes.clone(), limits, &cancellation, &mut budget),
+            Err(Error::LimitExceeded {
+                limit: LimitKind::TotalCoders,
+                requested: 2,
+                maximum: 1,
+            })
+        ));
+
+        let limits = Limits::builder().max_total_output_bytes(2).build();
+        let mut budget = WorkBudget::unlimited();
+        assert!(matches!(
+            Archive::open_bytes(bytes, limits, &cancellation, &mut budget),
+            Err(Error::LimitExceeded {
+                limit: LimitKind::TotalOutputBytes,
+                ..
+            })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn encrypted_external_folder_stream_keeps_password_state_typed() -> Result<()> {
+        let bytes = encrypted_external_folder_archive("a")?;
+        let cancellation = CancellationToken::new();
+        let mut budget = WorkBudget::unlimited();
+        assert!(matches!(
+            Archive::open_bytes(bytes.clone(), Limits::default(), &cancellation, &mut budget,),
+            Err(Error::PasswordRequired)
+        ));
+
+        let mut budget = WorkBudget::unlimited();
+        assert!(matches!(
+            Archive::open_bytes_with_password(
+                bytes.clone(),
+                Limits::default(),
+                "b",
+                &cancellation,
+                &mut budget,
+            ),
+            Err(Error::WrongPasswordOrCorrupt)
+        ));
+
+        let mut budget = WorkBudget::unlimited();
+        let archive = Archive::open_bytes_with_password(
+            bytes,
+            Limits::default(),
+            "a",
+            &cancellation,
+            &mut budget,
+        )?;
+        let mut budget = WorkBudget::unlimited();
+        assert_eq!(
+            archive.extract_entry(0, &cancellation, &mut budget)?,
+            b"payload"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn external_main_pack_ranges_are_validated_before_source_decode() -> Result<()> {
+        let bytes = encrypted_external_folder_archive_with_main_position("a", 0)?;
+        let cancellation = CancellationToken::new();
+        let mut budget = WorkBudget::unlimited();
+        assert!(matches!(
+            Archive::open_bytes(bytes, Limits::default(), &cancellation, &mut budget),
+            Err(Error::Format { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn verify_includes_unreferenced_additional_streams() -> Result<()> {
+        let crc = Crc32::checksum(b"aux")?;
+        let bytes = unreferenced_additional_archive(
+            AdditionalFixture {
+                packed: b"aux",
+                unpacked_size: 3,
+                folder_definition: &[1, 1, 0],
+                packed_crc: Some(crc),
+                folder_crc: Some(crc),
+                substream_crc: None,
+            },
+            None,
+        )?;
+        let cancellation = CancellationToken::new();
+        let mut budget = WorkBudget::unlimited();
+        let archive = Archive::open_bytes(bytes, Limits::default(), &cancellation, &mut budget)?;
+        assert!(archive.entries().is_empty());
+        let mut budget = WorkBudget::unlimited();
+        archive.verify(&cancellation, &mut budget)?;
+
+        let bytes = copy_unreferenced_additional_archive(Some(crc), Some(crc), None)?;
+        let mut budget = WorkBudget::unlimited();
+        let archive = Archive::open_bytes(bytes, Limits::default(), &cancellation, &mut budget)?;
+        let mut budget = WorkBudget::unlimited();
+        archive.verify(&cancellation, &mut budget)?;
+        let mut budget = WorkBudget::unlimited();
+        assert_eq!(
+            archive.extract_entry(0, &cancellation, &mut budget)?,
+            b"payload"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unreferenced_additional_stream_crc_failures_keep_their_scope() -> Result<()> {
+        let crc = Crc32::checksum(b"aux")?;
+        let cases = [
+            (
+                copy_unreferenced_additional_archive(Some(crc ^ 1), Some(crc), None)?,
+                ChecksumScope::PackedStream,
+            ),
+            (
+                copy_unreferenced_additional_archive(Some(crc), Some(crc ^ 1), None)?,
+                ChecksumScope::Folder,
+            ),
+            (
+                copy_unreferenced_additional_archive(Some(crc), None, Some(crc ^ 1))?,
+                ChecksumScope::AdditionalStream,
+            ),
+        ];
+        let cancellation = CancellationToken::new();
+        for (bytes, expected_scope) in cases {
+            let mut budget = WorkBudget::unlimited();
+            let archive =
+                Archive::open_bytes(bytes, Limits::default(), &cancellation, &mut budget)?;
+            let mut budget = WorkBudget::unlimited();
+            assert!(matches!(
+                archive.verify(&cancellation, &mut budget),
+                Err(Error::Checksum {
+                    scope,
+                    member_index: None,
+                }) if scope == expected_scope
+            ));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn unreferenced_encrypted_additional_stream_password_states() -> Result<()> {
+        let bytes = encrypted_unreferenced_additional_archive("a")?;
+        let cancellation = CancellationToken::new();
+        let mut budget = WorkBudget::unlimited();
+        let archive =
+            Archive::open_bytes(bytes.clone(), Limits::default(), &cancellation, &mut budget)?;
+        let mut budget = WorkBudget::unlimited();
+        assert!(matches!(
+            archive.verify(&cancellation, &mut budget),
+            Err(Error::PasswordRequired)
+        ));
+
+        let mut budget = WorkBudget::unlimited();
+        let archive = Archive::open_bytes_with_password(
+            bytes.clone(),
+            Limits::default(),
+            "b",
+            &cancellation,
+            &mut budget,
+        )?;
+        let mut budget = WorkBudget::unlimited();
+        assert!(matches!(
+            archive.verify(&cancellation, &mut budget),
+            Err(Error::WrongPasswordOrCorrupt)
+        ));
+
+        let mut budget = WorkBudget::unlimited();
+        let archive = Archive::open_bytes_with_password(
+            bytes,
+            Limits::default(),
+            "a",
+            &cancellation,
+            &mut budget,
+        )?;
+        let mut budget = WorkBudget::unlimited();
+        archive.verify(&cancellation, &mut budget)?;
+        Ok(())
+    }
+
+    #[test]
+    fn additional_and_main_verification_share_limits_and_operation_control() -> Result<()> {
+        let crc = Crc32::checksum(b"aux")?;
+        let bytes = copy_unreferenced_additional_archive(Some(crc), Some(crc), None)?;
+        let cancellation = CancellationToken::new();
+        let limits = Limits::builder().max_total_output_bytes(9).build();
+        let mut budget = WorkBudget::unlimited();
+        let archive = Archive::open_bytes(bytes.clone(), limits, &cancellation, &mut budget)?;
+        let mut budget = WorkBudget::unlimited();
+        assert!(matches!(
+            archive.verify(&cancellation, &mut budget),
+            Err(Error::LimitExceeded {
+                limit: LimitKind::TotalOutputBytes,
+                requested: 7,
+                maximum: 6,
+            })
+        ));
+
+        let mut budget = WorkBudget::unlimited();
+        let archive =
+            Archive::open_bytes(bytes.clone(), Limits::default(), &cancellation, &mut budget)?;
+        let mut budget = WorkBudget::bounded(0);
+        assert!(matches!(
+            archive.verify(&cancellation, &mut budget),
+            Err(Error::LimitExceeded {
+                limit: LimitKind::WorkUnits,
+                ..
+            })
+        ));
+
+        let cancellation = CancellationToken::new();
+        let mut budget = WorkBudget::unlimited();
+        let archive = Archive::open_bytes(bytes, Limits::default(), &cancellation, &mut budget)?;
+        cancellation.cancel();
+        let mut budget = WorkBudget::unlimited();
+        assert!(matches!(
+            archive.verify(&cancellation, &mut budget),
+            Err(Error::Cancelled)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn unreferenced_additional_streams_verify_across_memory_volumes() -> Result<()> {
+        let crc = Crc32::checksum(b"aux")?;
+        let bytes = copy_unreferenced_additional_archive(Some(crc), Some(crc), None)?;
+        let mut provider = MemoryVolumeProvider::new(split_across_additional_and_header(&bytes)?);
+        let cancellation = CancellationToken::new();
+        let mut budget = WorkBudget::unlimited();
+        let archive = Archive::open_volumes(
+            &mut provider,
+            "additional.7z.001",
+            Limits::default(),
+            &cancellation,
+            &mut budget,
+        )?;
+        let mut budget = WorkBudget::unlimited();
+        archive.verify(&cancellation, &mut budget)?;
+
+        let bytes = encrypted_unreferenced_additional_archive("a")?;
+        let mut provider = MemoryVolumeProvider::new(split_across_additional_and_header(&bytes)?);
+        let mut budget = WorkBudget::unlimited();
+        let archive = Archive::open_volumes_with_password(
+            &mut provider,
+            "encrypted-additional.7z.001",
+            Limits::default(),
+            "a",
+            &cancellation,
+            &mut budget,
+        )?;
+        let mut budget = WorkBudget::unlimited();
+        archive.verify(&cancellation, &mut budget)?;
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires stock 7zz 26.02"]
+    fn stock_7zz_accepts_external_folder_stream() -> Result<()> {
+        assert!(stock_7zz_accepts(&external_folder_archive(
+            &[1, 1, 0],
+            0,
+            None,
+            None,
+        )?)?);
+        assert!(stock_7zz_accepts(&second_external_folder_archive()?)?);
+        let additional_crc = Crc32::checksum(b"aux")?;
+        assert!(stock_7zz_accepts(&copy_unreferenced_additional_archive(
+            Some(additional_crc),
+            Some(additional_crc),
+            None,
+        )?)?);
         Ok(())
     }
 

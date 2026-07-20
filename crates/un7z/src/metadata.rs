@@ -5,11 +5,11 @@ use crate::{
     bounded::BoundedReader,
     checksum::Crc32,
     decode::METHOD_AES,
-    execute::decode_folder,
+    execute::{DecodedFolder, decode_folder},
     model::{ArchiveHeader, ExternalProperty, FileEntry, Folder, StreamsInfo},
     parse_util::{
-        CONTROL_CHUNK_SIZE, ParseControl, check_limit, copy_bytes, format_error, try_reserve,
-        u64_to_usize, usize_to_u64,
+        CONTROL_CHUNK_SIZE, ParseControl, check_limit, format_error, try_reserve, u64_to_usize,
+        usize_to_u64,
     },
     password::Password,
     raw::{ID_ATIME, ID_CTIME, ID_MTIME, ID_NAME, ID_START_POS, ID_WIN_ATTRIBUTES},
@@ -47,20 +47,130 @@ fn checksum(bytes: &[u8], control: &mut ParseControl<'_>) -> Result<u32> {
     Ok(checksum.finalize())
 }
 
-fn decoded_additional_streams(
+pub(crate) struct DecodedAdditionalStream {
+    bytes: Box<[u8]>,
+    encrypted: bool,
+}
+
+impl DecodedAdditionalStream {
+    pub(crate) const fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub(crate) const fn encrypted(&self) -> bool {
+        self.encrypted
+    }
+}
+
+pub(crate) struct DecodedAdditionalStreams {
+    streams: Vec<DecodedAdditionalStream>,
+    total_bytes: u64,
+}
+
+impl DecodedAdditionalStreams {
+    pub(crate) fn get(&self, data_index: u64) -> Result<&DecodedAdditionalStream> {
+        self.streams
+            .get(u64_to_usize(
+                data_index,
+                "additional-stream index is not representable on this platform",
+            )?)
+            .ok_or_else(|| format_error("additional-stream index is out of range"))
+    }
+
+    pub(crate) const fn total_bytes(&self) -> u64 {
+        self.total_bytes
+    }
+}
+
+fn verify_decoded_additional_folder(
+    folder: &Folder,
+    decoded: &DecodedFolder,
+    encrypted: bool,
+    control: &mut ParseControl<'_>,
+) -> Result<()> {
+    if decoded.crc_mismatch {
+        if encrypted {
+            return Err(Error::WrongPasswordOrCorrupt);
+        }
+        return Err(Error::Checksum {
+            scope: ChecksumScope::Folder,
+            member_index: None,
+        });
+    }
+    let folder_size = usize_to_u64(
+        decoded.bytes.len(),
+        "additional-stream folder output is not representable as u64",
+    )?;
+    let mut offset = 0_u64;
+    for (substream_index, substream) in folder.substreams().iter().enumerate() {
+        control.checkpoint(1)?;
+        let end = match substream.size() {
+            Some(size) => offset
+                .checked_add(size)
+                .ok_or_else(|| format_error("additional-stream range overflows"))?,
+            None if substream_index
+                .checked_add(1)
+                .is_some_and(|index| index == folder.substreams().len()) =>
+            {
+                folder_size
+            }
+            None => {
+                return Err(Error::UnsupportedFeature {
+                    feature: String::from("unknown-nonfinal-additional-stream-size"),
+                });
+            }
+        };
+        if end > folder_size {
+            return Err(format_error(
+                "additional-stream range exceeds its folder output",
+            ));
+        }
+        let bytes = decoded
+            .bytes
+            .get(
+                u64_to_usize(
+                    offset,
+                    "additional-stream start is not representable on this platform",
+                )?
+                    ..u64_to_usize(
+                        end,
+                        "additional-stream end is not representable on this platform",
+                    )?,
+            )
+            .ok_or_else(|| format_error("additional-stream range is out of bounds"))?;
+        if let Some(expected) = substream.crc() {
+            if checksum(bytes, control)? != expected {
+                if encrypted {
+                    return Err(Error::WrongPasswordOrCorrupt);
+                }
+                return Err(Error::Checksum {
+                    scope: ChecksumScope::AdditionalStream,
+                    member_index: None,
+                });
+            }
+        }
+        offset = end;
+    }
+    if offset != folder_size {
+        return Err(format_error(
+            "additional streams do not consume their folder output exactly",
+        ));
+    }
+    Ok(())
+}
+
+fn process_additional_streams<Consume>(
     archive_bytes: &[u8],
     streams: &StreamsInfo,
     password: Option<&Password>,
     limits: Limits,
     maximum_output: u64,
     control: &mut ParseControl<'_>,
-) -> Result<Vec<Box<[u8]>>> {
-    let stream_count = u64_to_usize(
-        streams.substream_count(),
-        "additional-stream count is not representable on this platform",
-    )?;
-    let mut outputs = Vec::new();
-    try_reserve(&mut outputs, stream_count)?;
+    mut consume: Consume,
+) -> Result<u64>
+where
+    Consume: FnMut(DecodedFolder, bool) -> Result<()>,
+{
     let mut total_output = 0_u64;
     for (folder_index, folder) in streams.folders().iter().enumerate() {
         control.checkpoint(1)?;
@@ -86,15 +196,6 @@ fn decoded_additional_streams(
             control,
         )
         .map_err(|error| map_encrypted_error(error, encrypted))?;
-        if decoded.crc_mismatch {
-            if encrypted {
-                return Err(Error::WrongPasswordOrCorrupt);
-            }
-            return Err(Error::Checksum {
-                scope: ChecksumScope::Folder,
-                member_index: None,
-            });
-        }
         let folder_size = usize_to_u64(
             decoded.bytes.len(),
             "additional-stream folder output is not representable as u64",
@@ -108,70 +209,66 @@ fn decoded_additional_streams(
             LimitKind::HeaderBytes,
         )?;
         check_limit(total_output, maximum_output, LimitKind::TotalOutputBytes)?;
-
-        let mut offset = 0_u64;
-        for (substream_index, substream) in folder.substreams().iter().enumerate() {
-            control.checkpoint(1)?;
-            let end = match substream.size() {
-                Some(size) => offset
-                    .checked_add(size)
-                    .ok_or_else(|| format_error("additional-stream range overflows"))?,
-                None if substream_index
-                    .checked_add(1)
-                    .is_some_and(|index| index == folder.substreams().len()) =>
-                {
-                    folder_size
-                }
-                None => {
-                    return Err(Error::UnsupportedFeature {
-                        feature: String::from("unknown-nonfinal-additional-stream-size"),
-                    });
-                }
-            };
-            if end > folder_size {
-                return Err(format_error(
-                    "additional-stream range exceeds its folder output",
-                ));
-            }
-            let bytes = decoded
-                .bytes
-                .get(
-                    u64_to_usize(
-                        offset,
-                        "additional-stream start is not representable on this platform",
-                    )?
-                        ..u64_to_usize(
-                            end,
-                            "additional-stream end is not representable on this platform",
-                        )?,
-                )
-                .ok_or_else(|| format_error("additional-stream range is out of bounds"))?;
-            if let Some(expected) = substream.crc() {
-                if checksum(bytes, control)? != expected {
-                    if encrypted {
-                        return Err(Error::WrongPasswordOrCorrupt);
-                    }
-                    return Err(Error::Checksum {
-                        scope: ChecksumScope::AdditionalStream,
-                        member_index: None,
-                    });
-                }
-            }
-            outputs.push(copy_bytes(bytes, control)?);
-            offset = end;
-        }
-        if offset != folder_size {
-            return Err(format_error(
-                "additional streams do not consume their folder output exactly",
-            ));
-        }
+        verify_decoded_additional_folder(folder, &decoded, encrypted, control)?;
+        consume(decoded, encrypted)?;
     }
+    Ok(total_output)
+}
+
+pub(crate) fn decode_additional_streams(
+    archive_bytes: &[u8],
+    streams: &StreamsInfo,
+    password: Option<&Password>,
+    limits: Limits,
+    maximum_output: u64,
+    control: &mut ParseControl<'_>,
+) -> Result<DecodedAdditionalStreams> {
+    let stream_count = streams.folders().len();
+    let mut outputs = Vec::new();
+    try_reserve(&mut outputs, stream_count)?;
+    let total_output = process_additional_streams(
+        archive_bytes,
+        streams,
+        password,
+        limits,
+        maximum_output,
+        control,
+        |decoded, encrypted| {
+            outputs.push(DecodedAdditionalStream {
+                bytes: decoded.bytes.into_boxed_slice(),
+                encrypted,
+            });
+            Ok(())
+        },
+    )?;
     if outputs.len() != stream_count {
         return Err(format_error(
             "decoded additional-stream count does not match its declaration",
         ));
     }
-    Ok(outputs)
+    Ok(DecodedAdditionalStreams {
+        streams: outputs,
+        total_bytes: total_output,
+    })
+}
+
+pub(crate) fn verify_additional_streams(
+    archive_bytes: &[u8],
+    streams: &StreamsInfo,
+    password: Option<&Password>,
+    limits: Limits,
+    maximum_output: u64,
+    control: &mut ParseControl<'_>,
+) -> Result<u64> {
+    process_additional_streams(
+        archive_bytes,
+        streams,
+        password,
+        limits,
+        maximum_output,
+        control,
+        |_decoded, _encrypted| Ok(()),
+    )
 }
 
 fn read_bytes<'data>(
@@ -197,19 +294,6 @@ fn read_u64(reader: &mut BoundedReader<'_>, control: &mut ParseControl<'_>) -> R
         .try_into()
         .map_err(|_| format_error("external u64 value is truncated"))?;
     Ok(u64::from_le_bytes(bytes))
-}
-
-fn external_stream<'data>(
-    streams: &'data [Box<[u8]>],
-    property: &ExternalProperty,
-) -> Result<&'data [u8]> {
-    streams
-        .get(u64_to_usize(
-            property.data_index(),
-            "external-property stream index is not representable on this platform",
-        )?)
-        .map(AsRef::as_ref)
-        .ok_or_else(|| format_error("external-property stream index is out of range"))
 }
 
 fn check_definition_count(entries: &[FileEntry], property: &ExternalProperty) -> Result<()> {
@@ -327,6 +411,50 @@ fn initial_name_bytes(entries: &[FileEntry]) -> Result<u64> {
     Ok(total)
 }
 
+pub(crate) fn apply_external_properties(
+    header: &mut ArchiveHeader,
+    decoded: &DecodedAdditionalStreams,
+    limits: Limits,
+    control: &mut ParseControl<'_>,
+) -> Result<()> {
+    let Some(files) = header.files_mut() else {
+        return Ok(());
+    };
+    if files.external_properties().is_empty() {
+        return Ok(());
+    }
+
+    let files = header
+        .files_mut()
+        .ok_or_else(|| format_error("file metadata disappeared during external decoding"))?;
+    let mut total_name_bytes = initial_name_bytes(files.entries())?;
+    let (entries, properties) = files.entries_and_external_mut();
+    for property in properties {
+        control.checkpoint(1)?;
+        let stream = decoded.get(property.data_index())?;
+        let data = stream.bytes();
+        let result = match property.property_id() {
+            ID_NAME => apply_external_names(
+                entries,
+                property,
+                data,
+                &mut total_name_bytes,
+                limits,
+                control,
+            ),
+            ID_CTIME | ID_ATIME | ID_MTIME | ID_START_POS => {
+                apply_external_u64(entries, property, data, control)
+            }
+            ID_WIN_ATTRIBUTES => apply_external_attributes(entries, property, data, control),
+            _ => Err(format_error(
+                "external-property descriptor has an unknown identifier",
+            )),
+        };
+        result.map_err(|error| map_encrypted_error(error, stream.encrypted()))?;
+    }
+    Ok(())
+}
+
 /// Resolves every known external file property and returns decoded byte usage.
 pub(crate) fn resolve_external_properties(
     header: &mut ArchiveHeader,
@@ -336,7 +464,7 @@ pub(crate) fn resolve_external_properties(
     maximum_output: u64,
     control: &mut ParseControl<'_>,
 ) -> Result<u64> {
-    let Some(files) = header.files_mut() else {
+    let Some(files) = header.files() else {
         return Ok(0);
     };
     if files.external_properties().is_empty() {
@@ -345,7 +473,7 @@ pub(crate) fn resolve_external_properties(
     let streams = header
         .additional_streams()
         .ok_or_else(|| format_error("external file properties have no additional streams"))?;
-    let decoded = decoded_additional_streams(
+    let decoded = decode_additional_streams(
         archive_bytes,
         streams,
         password,
@@ -353,46 +481,8 @@ pub(crate) fn resolve_external_properties(
         maximum_output,
         control,
     )?;
-    let decoded_bytes = decoded.iter().try_fold(0_u64, |total, bytes| {
-        total
-            .checked_add(usize_to_u64(
-                bytes.len(),
-                "external-property stream length is not representable as u64",
-            )?)
-            .ok_or_else(|| format_error("external-property byte count overflows"))
-    })?;
-
-    let files = header
-        .files_mut()
-        .ok_or_else(|| format_error("file metadata disappeared during external decoding"))?;
-    let mut total_name_bytes = initial_name_bytes(files.entries())?;
-    let (entries, properties) = files.entries_and_external_mut();
-    for property in properties {
-        control.checkpoint(1)?;
-        let data = external_stream(&decoded, property)?;
-        match property.property_id() {
-            ID_NAME => apply_external_names(
-                entries,
-                property,
-                data,
-                &mut total_name_bytes,
-                limits,
-                control,
-            )?,
-            ID_CTIME | ID_ATIME | ID_MTIME | ID_START_POS => {
-                apply_external_u64(entries, property, data, control)?;
-            }
-            ID_WIN_ATTRIBUTES => {
-                apply_external_attributes(entries, property, data, control)?;
-            }
-            _ => {
-                return Err(format_error(
-                    "external-property descriptor has an unknown identifier",
-                ));
-            }
-        }
-    }
-    Ok(decoded_bytes)
+    apply_external_properties(header, &decoded, limits, control)?;
+    Ok(decoded.total_bytes())
 }
 
 #[cfg(test)]
