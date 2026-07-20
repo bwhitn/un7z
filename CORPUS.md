@@ -183,8 +183,11 @@ as redistributable corpus material.
 The observed candidate hashes, warnings, errors, and platform limitations are
 recorded in `CAPABILITY_PROBES.md`. Synthetic rejection cannot prove that no
 valid form exists, and acceptance without visible semantics cannot establish a
-compatibility claim. Windows NT security and ADS evidence remains pending an
-exact-version Windows run.
+compatibility claim. The first exact-version Windows run rejected `-sni` and
+`-sns` authoring before an archive existed, so it contributed no NT-security
+or ADS corpus evidence. The revised ephemeral probe adds an ordinary-authoring
+control, separate metadata inputs, ADS readback, and bounded OS-error context;
+none of those temporary outputs is retained as corpus material.
 
 ## Phase 4 external evidence
 

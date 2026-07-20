@@ -10,14 +10,18 @@ warmup occur outside the timed loop.
 
 | Date | Commit | Benchmark | Result | Peak memory | Notes |
 | --- | --- | --- | --- | --- | --- |
-| 2026-07-18 | Uncommitted Phase 1 | N/A | Not run | Not measured | Foundation only |
-| 2026-07-18 | Uncommitted Phase 2 review unit 1 | Header envelope | Not benchmarked | No archive-derived buffer allocation | Correctness/fuzz review unit only |
-| 2026-07-18 | Uncommitted Phase 2 | Parser/model amplification | 100,000 empty entries accepted; 100,001 rejected | Not measured | Pass/fail bounded-allocation regression; not a performance claim |
-| 2026-07-18 | Uncommitted Phase 3 | Natural-order solid `Archive::extract_entries_to`, `lzma2.7z`, 50 timed iterations | 36,054 decoded bytes/iteration; 0.035271 s total; 48.742 MiB/s | Not measured | Counting sink correctness warmup passed; one solid folder decoded per iteration; no filesystem I/O in timed loop |
-| 2026-07-18 | Uncommitted Phase 4 | Natural-order solid `Archive::extract_entries_to`, `lzma2.7z`, 50 timed iterations | 36,054 decoded bytes/iteration; 0.034955 s total; 49.183 MiB/s | Not measured | Same reproducibility workload after codec/crypto/volume integration; counting sink correctness warmup passed; one solid folder decoded per iteration |
-| 2026-07-18 | Uncommitted Phase 5 | Natural-order solid `Archive::extract_entries_to`, `lzma2.7z`, 50 timed iterations | 36,054 decoded bytes/iteration; 0.038949 s total; 44.139 MiB/s | Not measured | Same reproducibility workload after remaining-method integration; counting sink correctness warmup passed; one solid folder decoded per iteration |
-| 2026-07-18 | Uncommitted Phase 6 | Natural-order solid `Archive::extract_entries_to`, `lzma2.7z`, 50 timed iterations | 10 entries; 36,054 decoded bytes and 92,896 deterministic work units/iteration; 0.042591 s total; 40.364 MiB/s | 1,359,872-byte direct-process peak RSS; 8,184-byte retained archive payload account; one 36,054-byte folder output | Direct release binary under macOS `/usr/bin/time -l`; correctness warmup passed; every timed iteration matched byte and work counts |
-| 2026-07-18 | Uncommitted Phase 7 | Python FFI | Not benchmarked | Not measured | Installed-wheel test verifies that another Python thread advances during 8 MiB Copy verification; this is a GIL-detachment correctness test, not a throughput or memory result |
+| 2026-07-18 | Pre-commit Phase 1 snapshot | N/A | Not run | Not measured | Foundation only |
+| 2026-07-18 | Pre-commit Phase 2.1 snapshot | Header envelope | Not benchmarked | No archive-derived buffer allocation | Correctness/fuzz review unit only |
+| 2026-07-18 | Pre-commit Phase 2 snapshot | Parser/model amplification | 100,000 empty entries accepted; 100,001 rejected | Not measured | Pass/fail bounded-allocation regression; not a performance claim |
+| 2026-07-18 | Pre-commit Phase 3 snapshot | Natural-order solid `Archive::extract_entries_to`, `lzma2.7z`, 50 timed iterations | 36,054 decoded bytes/iteration; 0.035271 s total; 48.742 MiB/s | Not measured | Counting sink correctness warmup passed; one solid folder decoded per iteration; no filesystem I/O in timed loop |
+| 2026-07-18 | Pre-commit Phase 4 snapshot | Natural-order solid `Archive::extract_entries_to`, `lzma2.7z`, 50 timed iterations | 36,054 decoded bytes/iteration; 0.034955 s total; 49.183 MiB/s | Not measured | Same reproducibility workload after codec/crypto/volume integration; counting sink correctness warmup passed; one solid folder decoded per iteration |
+| 2026-07-18 | Pre-commit Phase 5 snapshot | Natural-order solid `Archive::extract_entries_to`, `lzma2.7z`, 50 timed iterations | 36,054 decoded bytes/iteration; 0.038949 s total; 44.139 MiB/s | Not measured | Same reproducibility workload after remaining-method integration; counting sink correctness warmup passed; one solid folder decoded per iteration |
+| 2026-07-18 | Pre-commit Phase 6 snapshot | Natural-order solid `Archive::extract_entries_to`, `lzma2.7z`, 50 timed iterations | 10 entries; 36,054 decoded bytes and 92,896 deterministic work units/iteration; 0.042591 s total; 40.364 MiB/s | 1,359,872-byte direct-process peak RSS; 8,184-byte retained archive payload account; one 36,054-byte folder output | Direct release binary under macOS `/usr/bin/time -l`; correctness warmup passed; every timed iteration matched byte and work counts |
+| 2026-07-18 | Pre-commit Phase 7 snapshot | Python FFI | Not benchmarked | Not measured | Installed-wheel test verifies that another Python thread advances during 8 MiB Copy verification; this is a GIL-detachment correctness test, not a throughput or memory result |
+
+The exact Git object for these historical measurements was not recorded. The
+`Pre-commit` labels preserve that limitation; the rows must not be attributed
+to merge commit `77c2176` or treated as fresh post-merge measurements.
 
 Benchmark context:
 

@@ -123,11 +123,15 @@ No generated archive is retained.
 The capability-probe command requires the exact 26.02 oracle and prints
 machine-readable `UN7Z_7ZZ_PROBE` TSV records. It distinguishes authoring,
 oracle reading, Rust reading, and platform applicability; the synthetic
-platform-neutral results are an asserted version-specific baseline. See
-`CAPABILITY_PROBES.md` for fixture hashes and interpretation. Probe candidates
-are discovery evidence, not positive compatibility fixtures. The executable
-override is consumed only by this integration-test harness; production crates
-never inspect it or spawn the oracle.
+platform-neutral results are an asserted version-specific baseline. Windows
+CI additionally asserts a successful no-switch control and the reviewed
+`-sni`/`-sns` stage classifications, checks ADS byte readback before
+authoring, and publishes its bounded TSV diagnostics in the job summary. See
+`CAPABILITY_PROBES.md` for fixture hashes, the first Windows result, and
+interpretation. Probe candidates are discovery evidence, not positive
+compatibility fixtures. The executable override is consumed only by this
+integration-test harness; production crates never inspect it or spawn the
+oracle.
 
 No result is claimed for the literal `<CORPUS>` or `<MALFORMED_CORPUS>`
 placeholders; the owner confirmed that no such external sets are available.
@@ -281,8 +285,8 @@ counts are honored and an impossible count is rejected.
 On 2026-07-18 the locally built `cp39-abi3` macOS wheel installed into a clean
 CPython 3.12 virtual environment and all 10 binding tests passed. The sdist
 also rebuilt into a wheel in an isolated PEP 517 build; that rebuilt wheel was
-installed and passed the same suite. This is local macOS/Python 3.12 evidence
-only. GitHub Actions is configured to build, install, and
-test produced wheels with Python 3.9 on Linux, macOS, and Windows, and
-separately checks Rust 1.85 and sdist rebuildability; those remote matrix
-results are not claimed until CI runs.
+installed and passed the same suite. On 2026-07-20, PR #1 at `8c26a6e`
+observed successful Python 3.9 wheel build/install/tests on Linux, macOS, and
+Windows, plus the Rust 1.85 binding gate and sdist rebuild test. These are
+packaging/FFI platform results; the independent Python fixture still adds
+positive decoder evidence only for Copy.

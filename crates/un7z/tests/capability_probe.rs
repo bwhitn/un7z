@@ -266,33 +266,43 @@ fn sanitize_field(value: &str) -> String {
         .collect()
 }
 
-fn command_detail(output: &Output) -> String {
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let mut markers = Vec::new();
+fn diagnostic_markers(stdout: &[u8], stderr: &[u8]) -> String {
+    const MAX_LINES: usize = 6;
+
+    let stdout = String::from_utf8_lossy(stdout);
+    let stderr = String::from_utf8_lossy(stderr);
+    let mut diagnostics = Vec::new();
+    let mut take_context = false;
     for line in stdout.lines().chain(stderr.lines()) {
         let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
         let uppercase = trimmed.to_ascii_uppercase();
-        if !trimmed.is_empty()
-            && (uppercase.contains("ERROR")
-                || uppercase.contains("WARNING")
-                || uppercase.contains("UNSUPPORTED")
-                || uppercase.contains("E_NOTIMPL")
-                || uppercase.contains("UNEXPECTED END")
-                || uppercase.contains("IS NOT ARCHIVE")
-                || uppercase.contains("CAN NOT"))
-        {
-            markers.push(sanitize_field(trimmed));
-            if markers.len() == 4 {
+        let is_marker = uppercase.contains("ERROR")
+            || uppercase.contains("WARNING")
+            || uppercase.contains("UNSUPPORTED")
+            || uppercase.contains("E_NOTIMPL")
+            || uppercase.contains("UNEXPECTED END")
+            || uppercase.contains("IS NOT ARCHIVE")
+            || uppercase.contains("CAN NOT");
+        if is_marker || take_context {
+            diagnostics.push(sanitize_field(trimmed));
+            if diagnostics.len() == MAX_LINES {
                 break;
             }
         }
+        take_context = is_marker && trimmed.ends_with(':');
     }
-    let marker_text = if markers.is_empty() {
+    if diagnostics.is_empty() {
         String::from("none")
     } else {
-        markers.join(" / ")
-    };
+        diagnostics.join(" / ")
+    }
+}
+
+fn command_detail(output: &Output) -> String {
+    let marker_text = diagnostic_markers(&output.stdout, &output.stderr);
     format!(
         "exit={} markers={marker_text}",
         output
@@ -587,26 +597,47 @@ fn symlink_probe(_directory: &Path) -> ProbeResult<ProbeOutcome> {
 
 #[cfg(windows)]
 fn windows_metadata_probes(directory: &Path) -> ProbeResult<Vec<ProbeOutcome>> {
-    let source = directory.join("windows-metadata.bin");
-    fs::write(&source, b"Windows metadata capability probe")?;
-    fs::write(
-        PathBuf::from(format!("{}:un7z-probe", source.display())),
-        b"alternate stream",
+    const ADS_PAYLOAD: &[u8] = b"alternate stream";
+
+    let security_source = directory.join("windows-security.bin");
+    fs::write(&security_source, b"Windows security capability probe")?;
+    let ads_source = directory.join("windows-ads.bin");
+    fs::write(&ads_source, b"Windows ADS capability probe")?;
+    let ads_path = PathBuf::from(format!("{}:un7z-probe", ads_source.display()));
+    fs::write(&ads_path, ADS_PAYLOAD)?;
+    let ads_readback = fs::read(&ads_path)?;
+    if ads_readback.as_slice() != ADS_PAYLOAD {
+        return Err(String::from("Windows ADS precondition readback differs").into());
+    }
+
+    let mut control = authored_probe(
+        directory,
+        "windows-control",
+        &[],
+        &["windows-security.bin", "windows-ads.bin"],
     )?;
-    Ok(vec![
-        authored_probe(
-            directory,
-            "nt-security",
-            &["-sni"],
-            &["windows-metadata.bin"],
-        )?,
-        authored_probe(directory, "ntfs-ads", &["-sns"], &["windows-metadata.bin"])?,
-    ])
+    control
+        .detail
+        .push_str("; separate-inputs=true; ads-readback=true");
+    let mut security = authored_probe(
+        directory,
+        "nt-security",
+        &["-sni"],
+        &["windows-security.bin"],
+    )?;
+    security.detail.push_str("; separate-input=true");
+    let mut ads = authored_probe(directory, "ntfs-ads", &["-sns"], &["windows-ads.bin"])?;
+    ads.detail.push_str("; ads-readback=true");
+    Ok(vec![control, security, ads])
 }
 
 #[cfg(not(windows))]
 fn windows_metadata_probes(_directory: &Path) -> ProbeResult<Vec<ProbeOutcome>> {
     Ok(vec![
+        ProbeOutcome::not_applicable(
+            "windows-control",
+            "this control probe runs only with Windows metadata candidates",
+        ),
         ProbeOutcome::not_applicable(
             "nt-security",
             "-sni requires a Windows-generated security descriptor fixture",
@@ -811,6 +842,72 @@ fn require_2602_baseline(outcomes: &[ProbeOutcome]) -> ProbeResult<()> {
     Ok(())
 }
 
+fn require_stage_baseline(
+    outcomes: &[ProbeOutcome],
+    expected: &[(&str, Stage, Stage, Stage)],
+) -> ProbeResult<()> {
+    for (name, author, oracle_read, rust_read) in expected {
+        let outcome = outcomes
+            .iter()
+            .find(|outcome| outcome.name == *name)
+            .ok_or_else(|| format!("7zz 26.02 platform probe {name} is missing"))?;
+        if (outcome.author, outcome.oracle_read, outcome.rust_read)
+            != (*author, *oracle_read, *rust_read)
+        {
+            return Err(format!(
+                "7zz 26.02 platform baseline changed for {name}: expected ({author}, {oracle_read}, {rust_read}), observed ({}, {}, {})",
+                outcome.author, outcome.oracle_read, outcome.rust_read,
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn require_windows_2602_baseline(outcomes: &[ProbeOutcome]) -> ProbeResult<()> {
+    require_stage_baseline(
+        outcomes,
+        &[
+            (
+                "windows-control",
+                Stage::Accepted,
+                Stage::Accepted,
+                Stage::Accepted,
+            ),
+            ("nt-security", Stage::Rejected, Stage::NotRun, Stage::NotRun),
+            ("ntfs-ads", Stage::Rejected, Stage::NotRun, Stage::NotRun),
+        ],
+    )
+}
+
+#[cfg(not(windows))]
+fn require_windows_2602_baseline(outcomes: &[ProbeOutcome]) -> ProbeResult<()> {
+    require_stage_baseline(
+        outcomes,
+        &[
+            (
+                "windows-control",
+                Stage::NotApplicable,
+                Stage::NotApplicable,
+                Stage::NotApplicable,
+            ),
+            (
+                "nt-security",
+                Stage::NotApplicable,
+                Stage::NotApplicable,
+                Stage::NotApplicable,
+            ),
+            (
+                "ntfs-ads",
+                Stage::NotApplicable,
+                Stage::NotApplicable,
+                Stage::NotApplicable,
+            ),
+        ],
+    )
+}
+
 fn open_bytes(bytes: Vec<u8>) -> Result<(), ErrorKind> {
     let cancellation = CancellationToken::new();
     let mut budget = WorkBudget::unlimited();
@@ -910,6 +1007,19 @@ fn accepts_standalone_and_windows_2602_oracle_banners() {
 }
 
 #[test]
+fn diagnostic_markers_retain_bounded_system_error_context() {
+    assert_eq!(
+        diagnostic_markers(b"", b"System ERROR:\r\nIncorrect function.\r\n"),
+        "System ERROR: / Incorrect function."
+    );
+    assert_eq!(diagnostic_markers(b"ordinary output\n", b""), "none");
+
+    let repeated =
+        b"ERROR:\ncontext one\nERROR:\ncontext two\nERROR:\ncontext three\nERROR:\ncontext four\n";
+    assert_eq!(diagnostic_markers(repeated, b"").split(" / ").count(), 6);
+}
+
+#[test]
 #[ignore = "requires exact stock 7zz 26.02; emits a structured capability report"]
 fn stock_7zz_2602_capability_probe_report() -> ProbeResult<()> {
     let version = require_7zz_2602()?;
@@ -922,6 +1032,7 @@ fn stock_7zz_2602_capability_probe_report() -> ProbeResult<()> {
             outcome.print_tsv();
         }
         require_2602_baseline(&outcomes)?;
+        require_windows_2602_baseline(&outcomes)?;
         Ok(())
     })();
     let cleanup = fs::remove_dir_all(&directory);
