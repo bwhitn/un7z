@@ -117,9 +117,11 @@ not automatically a fuzz corpus. Its property combinations may be promoted to
 the existing generated decoding wrappers only after the serialized case is
 reduced, its origin and expected result remain reproducible, and mutation does
 not require invoking `7zz` from a fuzz target. The matrix itself never runs in
-libFuzzer. Its deterministic CRC-correct packed-size/property mutations remain
-integration regressions; a later seed-generator change may reproduce their
-structures without retaining oracle-authored archive bytes.
+libFuzzer. Continuous execution in the checksum-pinned oracle job does not add
+its ephemeral archives to a fuzz corpus. Its deterministic CRC-correct
+packed-size/property mutations remain integration regressions; a later
+seed-generator change may reproduce their structures without retaining
+oracle-authored archive bytes.
 
 The targets use `libfuzzer-sys` 0.4.13. Its NCSA license term is recorded as an
 exact, fuzz-only cargo-deny exception; it is not a runtime dependency or runtime

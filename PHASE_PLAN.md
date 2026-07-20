@@ -449,6 +449,20 @@ separate valid or malformed corpus is available.
     each returned `System ERROR: Not implemented` before producing an archive.
     The full Rust workflow, including Miri, and the Python workflow passed.
     These results change no runtime feature boundary.
+15. Promoted the corpus-free `generated_oracle` core/property matrix and both
+    Phase 5 generated suites into the checksum-pinned Windows oracle job. Both
+    harnesses accept the test-only executable override, recognize exact
+    standalone and Windows 26.02 banners, generate fixtures in unique
+    temporary directories, and delete them. Local exact-26.02 runs passed
+    before the CI change; no compatibility row changes until the new job is
+    reviewed.
+16. Added a separately checksum-pinned Linux 26.02 capability job for link
+    semantics. The hard-link probe now requires both Rust entry extractions to
+    match the project-authored bytes and reports same-inode oracle extraction
+    separately. Raw `AES256CBC` is attempted as both a main coder and a filter
+    chain. The exact packaged manual establishes that `-sni` and `-sns` store
+    only to WIM, so they are removed from the 7z compatibility backlog. The
+    first Linux job result remains evidence to review, not a support claim.
 
 No binary oracle output or fuzzer working corpus is committed. Further
 compatibility work should use these generated/fuzz/coverage paths and retain a

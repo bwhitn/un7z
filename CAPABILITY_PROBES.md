@@ -52,9 +52,23 @@ GitHub Actions summary. Windows control, `-sni`, and `-sns` author/read
 classifications are asserted so an environmental or oracle change requires
 review.
 
+After publishing the capability summary, the same checksum-pinned job runs the
+corpus-free generated core/property and Phase 5 differential suites. Those
+suites use the test-only executable override, require the exact 26.02 banner,
+and delete every generated archive. Successful results are compatibility
+evidence, not part of the capability classification table below.
+
+The `linux-7zip-capability` job independently downloads the official 26.02
+Linux x64 archive, requires SHA-256
+`41aaba7b1235304ab5aa0624530c67ae829496cd29e875925271efdccc28c03e`,
+extracts only `7zz`, and publishes the same structured report. Its first run
+must be reviewed before Linux hard-link semantics become compatibility
+evidence.
+
 ## Observed macOS 26.02 results
 
-The following results were observed on 2026-07-19 with the x64 macOS build of
+The following results were observed on 2026-07-19 and extended with the raw-AES
+chain and Rust member-byte checks on 2026-07-20, using the x64 macOS build of
 stock `7zz` 26.02:
 
 | Probe | Fixture origin | 7zz result | Rust result | Interpretation |
@@ -65,11 +79,11 @@ stock `7zz` 26.02:
 | Unknown Copy unpacked size | Original CRC-correct synthetic Copy archive | Rejected with `Data Error` | Opens and verifies by deriving Copy output from bounded input | Rust's safe extension is not credited as 7zz compatibility |
 | Unknown packed size | Original CRC-correct synthetic Copy archive | Rejected with `Headers Error` | Typed `UnsupportedFeature` | Current Rust boundary agrees with the observed oracle rejection |
 | Unknown non-final substream size | Original CRC-correct two-member Copy archive | Rejected with `Headers Error` | Typed `UnsupportedFeature` during verification | Current structured rejection remains appropriate |
-| Raw `AES256CBC` author request | `7zz a -m0=AES256CBC` | Authoring fails with `E_NOTIMPL` | Not run because no archive was produced | `7zz i` advertises the decoder ID, but read compatibility remains unproven without a permissibly sourced fixture |
-| Hard-link switch | `7zz`-authored `-snh` archive over two host hard links | Author/test/extract succeed; extracted paths are distinct files on this host | Opens and verifies both entries | Hard-link relationship preservation is not established by this host result |
+| Raw `AES256CBC` author requests | `7zz a -m0=AES256CBC` and Copy→`AES256CBC` | Main-coder and filter-chain authoring both fail with `E_NOTIMPL` | Not run because no archive was produced | `7zz i` advertises the decoder ID, but read compatibility remains unproven without a permissibly sourced fixture |
+| Hard-link switch | `7zz`-authored `-snh` archive over two host hard links | Author/test/extract succeed; extracted paths are distinct files on this host | Opens, verifies, and returns the expected bytes for both entries | Hard-link relationship preservation is not established by this host result |
 | Symbolic-link switch | `7zz`-authored `-snl` archive | Author/test/extract succeed and restore the relative target | Opens and verifies both entries | Confirms the already documented symlink slice |
-| NT security | Windows-only `-sni` probe | Not applicable on this host | Not run | Requires a Windows security-descriptor fixture |
-| NTFS alternate streams | Windows-only `-sns` probe | Not applicable on this host | Not run | Requires a Windows NTFS ADS fixture |
+| NT security | Windows-only `-sni` probe | Not applicable on this host | Not run | The exact 26.02 manual says this switch stores metadata only in WIM, outside the 7z reader scope |
+| NTFS alternate streams | Windows-only `-sns` probe | Not applicable on this host | Not run | The exact 26.02 manual says this switch stores streams only in WIM, outside the 7z reader scope |
 
 The six deterministic synthesized archives had these SHA-256 values:
 
@@ -100,27 +114,30 @@ The reviewed Windows-specific and host-authored results were:
 | Probe | Author result | Oracle/Rust result | Interpretation |
 | --- | --- | --- | --- |
 | Windows no-switch control | Accepted | Oracle test/extract and Rust verification accepted two separate entries | Confirms that ordinary authoring and both readers worked in the same environment |
-| Raw `AES256CBC` | Rejected, exit 2, `System ERROR: Not implemented` | Not run; no archive was produced | No raw-AES read evidence |
+| Raw `AES256CBC` | Rejected, exit 2, `System ERROR: Not implemented` | Not run; no archive was produced | No raw-AES read evidence; the Copy-chain form awaits the new CI runs |
 | Hard link | Accepted | Oracle test/extract and Rust verification accepted; same-file identity was unavailable to the test | No hard-link semantic-preservation claim |
 | Symbolic link | Not applicable | Not run | The hosted process could not create the required unprivileged source link |
-| NT security (`-sni`) | Rejected, exit 2, `System ERROR: Not implemented` | Not run; no archive was produced | The oracle did not produce a security-descriptor fixture; this is neither support nor proof that the format is invalid |
-| NTFS alternate streams (`-sns`) | Rejected, exit 2, `System ERROR: Not implemented` | Not run; no archive was produced | ADS creation and byte-for-byte readback succeeded before authoring, but the oracle produced no fixture; no ADS compatibility claim |
+| NT security (`-sni`) | Rejected, exit 2, `System ERROR: Not implemented` | Not run; no archive was produced | Matches the shipped 26.02 manual's WIM-only authoring boundary; it is not a 7z compatibility gap |
+| NTFS alternate streams (`-sns`) | Rejected, exit 2, `System ERROR: Not implemented` | Not run; no archive was produced | ADS readback succeeded, but the shipped manual documents WIM-only storage; it is not a 7z compatibility gap |
 
 The follow-up demonstrates that the ordinary authoring path and Rust reader
 were operational and that the ADS source existed with the expected bytes. The
 exact Windows 26.02 oracle nevertheless rejected raw AES, `-sni`, and `-sns`
-before producing an archive. This is evidence about that oracle build and CI
-host, not proof that every valid serialization is absent and not evidence of a
-Rust decoder gap. Host-authored temporary archives contain host metadata and
-are not assigned stable corpus hashes.
+before producing an archive. The raw-AES result is evidence about that oracle
+build and CI host, not proof that every valid serialization is absent and not
+evidence of a Rust decoder gap. The official manual shipped in the
+checksum-verified Linux 26.02 package explicitly limits `-sni` and `-sns`
+storage to WIM, so those two switches are outside this 7z-only project.
+Host-authored temporary archives contain host metadata and are not assigned
+stable corpus hashes.
 
 ## Remaining probe work
 
-Positive NT-security or ADS work still requires an oracle-authored or
-permissibly sourced archive whose semantic metadata can be inspected. A raw
-`AES256CBC` read probe, a positive alternative-coder archive, or a semantic
-comment fixture may be added only when its bytes have an acceptable documented
-origin and redistribution status.
+A raw `AES256CBC` read probe, a positive alternative-coder archive, or a
+semantic comment fixture may be added only when its bytes have an acceptable
+documented origin and redistribution status. NT-security and ADS fixtures are
+not sought for this project because the exact oracle manual documents their
+storage as WIM-only.
 Multi-output coder support likewise remains a conditional implementation item
 until a valid stock-accepted method graph is available.
 

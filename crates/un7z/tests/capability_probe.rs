@@ -16,6 +16,7 @@ use un7z::{Archive, CancellationToken, ErrorKind, Limits, WorkBudget};
 const SIGNATURE: &[u8] = b"7z\xbc\xaf\x27\x1c";
 const UNKNOWN_SIZE: u64 = u64::MAX;
 const PASSWORD: &str = "capability-probe-password";
+const HARDLINK_PAYLOAD: &[u8] = b"hard-link capability probe";
 const NORMAL_COPY_CODER: &[u8] = &[0x01, 0x00];
 // The leading high bit declares another alternative coder record. This is a
 // black-box grammar probe, not a compatibility fixture or parser input source.
@@ -426,6 +427,51 @@ fn rust_verify(path: &Path) -> ProbeResult<(Stage, String)> {
     }
 }
 
+fn rust_members_match(path: &Path, expected: &[u8], count: usize) -> ProbeResult<(bool, String)> {
+    let bytes = fs::read(path)?;
+    let cancellation = CancellationToken::new();
+    let mut budget = WorkBudget::unlimited();
+    let archive = match Archive::open_bytes(bytes, Limits::default(), &cancellation, &mut budget) {
+        Ok(archive) => archive,
+        Err(error) => {
+            return Ok((false, format!("open {:?}: {error}", error.kind())));
+        }
+    };
+    if archive.entries().len() != count {
+        return Ok((
+            false,
+            format!(
+                "entry-count expected={count} actual={}",
+                archive.entries().len()
+            ),
+        ));
+    }
+    for index in 0..count {
+        let entry_index = u64::try_from(index)?;
+        let mut budget = WorkBudget::unlimited();
+        let member = match archive.extract_entry(entry_index, &cancellation, &mut budget) {
+            Ok(member) => member,
+            Err(error) => {
+                return Ok((
+                    false,
+                    format!("entry={index} extract {:?}: {error}", error.kind()),
+                ));
+            }
+        };
+        if member.as_slice() != expected {
+            return Ok((
+                false,
+                format!(
+                    "entry={index} expected-bytes={} actual-bytes={}",
+                    expected.len(),
+                    member.len()
+                ),
+            ));
+        }
+    }
+    Ok((true, format!("entries={count}")))
+}
+
 fn synthetic_probe(
     directory: &Path,
     name: &'static str,
@@ -505,10 +551,7 @@ fn same_file(_left: &Path, _right: &Path) -> ProbeResult<Option<bool>> {
 }
 
 fn hardlink_probe(directory: &Path) -> ProbeResult<ProbeOutcome> {
-    fs::write(
-        directory.join("hardlink-source.bin"),
-        b"hard-link capability probe",
-    )?;
+    fs::write(directory.join("hardlink-source.bin"), HARDLINK_PAYLOAD)?;
     fs::hard_link(
         directory.join("hardlink-source.bin"),
         directory.join("hardlink-alias.bin"),
@@ -520,6 +563,14 @@ fn hardlink_probe(directory: &Path) -> ProbeResult<ProbeOutcome> {
         &["hardlink-source.bin", "hardlink-alias.bin"],
     )?;
     if outcome.author.is_accepted() {
+        let (members_match, rust_detail) =
+            rust_members_match(&directory.join("hardlink.7z"), HARDLINK_PAYLOAD, 2)?;
+        if !members_match {
+            outcome.rust_read = Stage::Rejected;
+        }
+        outcome.detail.push_str(&format!(
+            "; rust-members-match={members_match}; rust-members={rust_detail}"
+        ));
         let extraction = directory.join("hardlink-output");
         fs::create_dir(&extraction)?;
         let output = oracle_command()
@@ -742,7 +793,7 @@ fn run_capability_probes(directory: &Path) -> ProbeResult<Vec<ProbeOutcome>> {
     ];
 
     let mut outcomes = Vec::new();
-    outcomes.try_reserve(fixtures.len().saturating_add(6))?;
+    outcomes.try_reserve(fixtures.len().saturating_add(7))?;
     for (name, fixture, inspect_listing) in fixtures {
         outcomes.push(synthetic_probe(
             directory,
@@ -757,6 +808,12 @@ fn run_capability_probes(directory: &Path) -> ProbeResult<Vec<ProbeOutcome>> {
         directory,
         "raw-aes256cbc",
         &["-m0=AES256CBC", &format!("-p{PASSWORD}")],
+        &["raw-aes.bin"],
+    )?);
+    outcomes.push(authored_probe(
+        directory,
+        "raw-aes256cbc-chain",
+        &["-m0=Copy", "-m1=AES256CBC", &format!("-p{PASSWORD}")],
         &["raw-aes.bin"],
     )?);
     outcomes.push(hardlink_probe(directory)?);
@@ -811,6 +868,13 @@ fn require_2602_baseline(outcomes: &[ProbeOutcome]) -> ProbeResult<()> {
         ),
         (
             "raw-aes256cbc",
+            Stage::Rejected,
+            Stage::NotRun,
+            Stage::NotRun,
+            None,
+        ),
+        (
+            "raw-aes256cbc-chain",
             Stage::Rejected,
             Stage::NotRun,
             Stage::NotRun,

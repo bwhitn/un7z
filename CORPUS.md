@@ -175,10 +175,10 @@ the separate oracle fixtures and corruption tests.
 `crates/un7z/tests/capability_probe.rs` constructs six deterministic,
 CRC-correct Copy candidates for comments, an alternative coder declaration,
 and unknown-size boundaries. It also asks exact stock `7zz` 26.02 to author
-temporary raw-AES, hard-link, symlink, and platform metadata cases. The test
-emits structured author/oracle/Rust outcomes and SHA-256 values, then deletes
-its unique temporary directory. No resulting archive is committed or treated
-as redistributable corpus material.
+temporary raw-AES main/filter, hard-link, symlink, and platform metadata cases.
+The test emits structured author/oracle/Rust outcomes and SHA-256 values, then
+deletes its unique temporary directory. No resulting archive is committed or
+treated as redistributable corpus material.
 
 The observed candidate hashes, warnings, errors, and platform limitations are
 recorded in `CAPABILITY_PROBES.md`. Synthetic rejection cannot prove that no
@@ -189,6 +189,10 @@ observed `System ERROR: Not implemented` while raw AES, `-sni`, and `-sns`
 were being authored. No corresponding archive existed for Rust to read, so the
 run contributed no raw-AES, NT-security, or ADS corpus evidence. None of the
 temporary control or host-authored outputs is retained as corpus material.
+The checksum-pinned Linux job runs the same ephemeral constructors so
+same-inode hard-link behavior can be observed on a capable host. The official
+26.02 manual files used to classify `-sni` and `-sns` as WIM-only are read from
+the verified release archive and are neither copied nor made corpus inputs.
 
 ## Phase 4 external evidence
 
@@ -221,8 +225,10 @@ UN7Z_GO_TESTDATA=<PINNED_GO_CHECKOUT>/testdata \
 
 No Phase 5 binary fixture is committed. The ignored harness in
 `crates/un7z/tests/phase5_reference.rs` creates deterministic synthetic source
-bytes and asks the locally installed `7zz` 26.02 executable to author archives
-inside a unique temporary directory. It compares production Rust output,
+bytes and asks the selected exact `7zz` 26.02 executable to author archives
+inside a unique temporary directory. The executable can be selected with the
+test-only `UN7Z_7ZZ` override, including the checksum-pinned Windows CI
+installation. The harness compares production Rust output,
 SHA-256, size, CRC, ordered names, and metadata with the oracle and then
 deletes the directory.
 
@@ -254,6 +260,10 @@ Unicode, symlinks, duplicate names, wrong passwords, and the pinned Go
 fixtures. A separate in-tree unit vector forces a dynamic Huffman block through
 the Deflate64 decoder; the generated oracle fixture supplies the
 Deflate64-specific long-distance and long-match evidence.
+
+The checksum-pinned Windows oracle job now invokes both Phase 5 tests and all
+four ignored `generated_oracle` tests. Every source and archive remains
+ephemeral; CI does not create a retained or redistributable corpus.
 
 ## Encoded-header compatibility closure
 

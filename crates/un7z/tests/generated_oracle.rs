@@ -96,23 +96,43 @@ fn command_failure(label: &str, output: &std::process::Output) -> String {
     )
 }
 
-#[cfg(feature = "unstable-internals")]
+fn oracle_command() -> Command {
+    match std::env::var_os("UN7Z_7ZZ") {
+        Some(executable) => Command::new(executable),
+        None => Command::new("7zz"),
+    }
+}
+
+fn oracle_banner(listing: &str) -> Option<&str> {
+    listing.lines().find(|line| line.starts_with("7-Zip "))
+}
+
 fn require_exact_7zz() -> Result<(), Box<dyn StdError>> {
-    let output = Command::new("7zz").arg("i").env("LC_ALL", "C").output()?;
+    let output = oracle_command().arg("i").env("LC_ALL", "C").output()?;
     if !output.status.success() {
         return Err(command_failure("7zz version query", &output).into());
     }
     let version = String::from_utf8(output.stdout)?;
-    let banner = version
-        .lines()
-        .find(|line| line.starts_with("7-Zip (z) "))
-        .ok_or_else(|| String::from("7zz version banner is missing"))?;
-    if !banner.starts_with("7-Zip (z) 26.02 ") {
+    let banner =
+        oracle_banner(&version).ok_or_else(|| String::from("7zz version banner is missing"))?;
+    if !banner.starts_with("7-Zip (z) 26.02 ") && !banner.starts_with("7-Zip 26.02 ") {
         return Err(
-            format!("property matrix requires exact stock 7zz 26.02, found {banner}").into(),
+            format!("generated oracle requires exact stock 7zz 26.02, found {banner}").into(),
         );
     }
     Ok(())
+}
+
+#[test]
+fn exact_oracle_banner_accepts_standalone_and_windows_forms() {
+    assert_eq!(
+        oracle_banner("\n7-Zip (z) 26.02 (x64) : Copyright\n"),
+        Some("7-Zip (z) 26.02 (x64) : Copyright")
+    );
+    assert_eq!(
+        oracle_banner("\r\n7-Zip 26.02 (x64) : Copyright\r\n"),
+        Some("7-Zip 26.02 (x64) : Copyright")
+    );
 }
 
 #[cfg(feature = "unstable-internals")]
@@ -121,7 +141,7 @@ fn oracle_summary_field(
     password: Option<&str>,
     field: &str,
 ) -> Result<String, Box<dyn StdError>> {
-    let mut command = Command::new("7zz");
+    let mut command = oracle_command();
     command.args(["l", "-slt"]);
     if let Some(password) = password {
         command.arg(format!("-p{password}"));
@@ -146,7 +166,7 @@ fn oracle_metadata(
     path: &Path,
     password: Option<&str>,
 ) -> Result<Vec<OracleEntry>, Box<dyn StdError>> {
-    let mut command = Command::new("7zz");
+    let mut command = oracle_command();
     command.args(["l", "-slt"]);
     if let Some(password) = password {
         command.arg(format!("-p{password}"));
@@ -235,7 +255,7 @@ fn oracle_member(
     name: &str,
     password: Option<&str>,
 ) -> Result<Vec<u8>, Box<dyn StdError>> {
-    let mut command = Command::new("7zz");
+    let mut command = oracle_command();
     command.args(["x", "-so", "-y"]);
     if let Some(password) = password {
         command.arg(format!("-p{password}"));
@@ -412,7 +432,7 @@ fn create_archive(
     let source_name = format!("{name}.bin");
     fs::write(directory.join(&source_name), payload)?;
     let archive = directory.join(format!("{name}.7z"));
-    let mut command = Command::new("7zz");
+    let mut command = oracle_command();
     command
         .current_dir(directory)
         .args(["a", "-y", "-t7z", "-mhc=off"])
@@ -436,7 +456,7 @@ fn create_archive_from_sources(
     source_names: &[&str],
 ) -> Result<PathBuf, Box<dyn StdError>> {
     let archive = directory.join(format!("{name}.7z"));
-    let mut command = Command::new("7zz");
+    let mut command = oracle_command();
     command
         .current_dir(directory)
         .args(["a", "-y", "-t7z", "-mhc=off"])
@@ -1182,6 +1202,7 @@ fn assert_corruption_fails(path: &Path, password: Option<&str>) -> Result<(), Bo
 #[test]
 #[ignore = "requires stock 7zz 26.02"]
 fn generated_core_and_go_parity_methods_match_7zz() -> Result<(), Box<dyn StdError>> {
+    require_exact_7zz()?;
     let directory = temporary_directory("methods")?;
     let result = (|| -> Result<(), Box<dyn StdError>> {
         for (name, method, switches, is_filter) in [
@@ -1221,6 +1242,7 @@ fn generated_core_and_go_parity_methods_match_7zz() -> Result<(), Box<dyn StdErr
 #[test]
 #[ignore = "requires stock 7zz 26.02"]
 fn generated_encrypted_header_and_data_match_7zz() -> Result<(), Box<dyn StdError>> {
+    require_exact_7zz()?;
     let directory = temporary_directory("aes")?;
     let result = (|| -> Result<(), Box<dyn StdError>> {
         let payload = method_payload("copy")?;
@@ -1282,6 +1304,7 @@ fn generated_encrypted_header_and_data_match_7zz() -> Result<(), Box<dyn StdErro
 #[test]
 #[ignore = "requires stock 7zz 26.02"]
 fn generated_sfx_prefix_matches_7zz() -> Result<(), Box<dyn StdError>> {
+    require_exact_7zz()?;
     let directory = temporary_directory("sfx")?;
     let result = (|| -> Result<(), Box<dyn StdError>> {
         let payload = method_payload("copy")?;

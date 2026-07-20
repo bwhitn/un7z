@@ -122,8 +122,21 @@ The Windows CI extension uses the official `ip7z/7zip` 26.02 release asset
 `6745fa76dc2ea031596d8678f6f6b99c3c1b435b4164a63485adbbc7b8d82ef0`.
 The workflow verifies that digest before black-box execution and retains
 neither the installer nor an authored archive. The test-only executable-name
-override and Windows/standalone banner classification are original Rust test
-code licensed MIT OR Apache-2.0; no oracle source was inspected or adapted.
+override now selects the oracle for the capability, generated core/property,
+and Phase 5 harnesses. Its Windows/standalone banner classification and command
+selection are original Rust test code licensed MIT OR Apache-2.0; no oracle
+source was inspected or adapted.
+
+The Linux capability job uses the official `ip7z/7zip` 26.02 release asset
+`7z2602-linux-x64.tar.xz`, whose release metadata and locally verified digest
+are SHA-256
+`41aaba7b1235304ab5aa0624530c67ae829496cd29e875925271efdccc28c03e`.
+CI extracts only `7zz`. During this audit, the packaged
+`MANUAL/cmdline/switches/sni.htm` and `sns.htm` files were read as primary
+behavioral documentation: both identify storage as WIM-only. No text, binary,
+source, SDK, or implementation from that package is copied or shipped. The
+new Linux workflow and Rust member-byte probe are original MIT OR Apache-2.0
+test code.
 
 The 2026-07-20 Windows-probe follow-up is original Rust and workflow code
 licensed MIT OR Apache-2.0. It separates project-authored security and ADS
@@ -223,7 +236,7 @@ are offered under MIT OR Apache-2.0.
 | Raw UTF-16/property validators | Original safe Rust in `crates/un7z/src/validate.rs`, with serialized property layouts covered by the adaptation rows | Pinned Go grammar and project resource/path requirements | MIT OR Apache-2.0 plus upstream notice for adapted layouts | Two-pass name limits precede allocation; exact child consumption; external indices checked; raw code units retained |
 | CRC-32 | Original `crates/un7z/src/checksum.rs` | CRC-32/ISO-HDLC reflected polynomial `0xEDB88320`; table generated at compile time, with no external table or implementation copied | MIT OR Apache-2.0 | Standard `123456789` vector (`0xCBF43926`), empty vector, incremental equivalence, and corrupt start/next-header tests |
 | Folder executor and output APIs | Original `crates/un7z/src/execute.rs` and `archive.rs`, using the validated model | Requirements-driven linear port/binding executor, CRC-finalizing session design, caller-owned natural-order sink, and ordered reconstruction of encoded-header substreams; no 7-Zip or p7zip implementation source was consulted | MIT OR Apache-2.0 | Reverse-stored Copy chain test, BCJ2 corpus graph, packed/folder/member CRC regressions, reader/sink finish regressions, linear solid traversal, known/unknown entry caps, output/work/cancellation limits, generated multi-substream header accepted by stock `7zz` 26.02, and separate negative multi-folder oracle evidence |
-| Stock-7zz capability-probe harness | Original `crates/un7z/tests/capability_probe.rs` over the already recorded serialized container grammar | Project evidence rules and black-box execution of exact stock `7zz` 26.02; no oracle implementation source consulted | MIT OR Apache-2.0 plus the upstream notice for already adapted serialized grammar | Exact-version structured author/read/Rust results for comment candidates, alternative coder candidate, unknown sizes, raw AES authoring, links, and platform metadata switches; Windows control, ADS readback, bounded diagnostic context, and stage-drift checks; deterministic hashes in `CAPABILITY_PROBES.md` |
+| Stock-7zz capability-probe harness | Original `crates/un7z/tests/capability_probe.rs` over the already recorded serialized container grammar | Project evidence rules and black-box execution of exact stock `7zz` 26.02; no oracle implementation source consulted | MIT OR Apache-2.0 plus the upstream notice for already adapted serialized grammar | Exact-version structured author/read/Rust results for comment candidates, alternative coder candidate, unknown sizes, raw AES main/filter authoring, link member bytes and host semantics, and platform metadata switches; Windows control, ADS readback, bounded diagnostic context, and stage-drift checks; deterministic hashes in `CAPABILITY_PROBES.md` |
 | Stock-7zz method/property matrix | Original additions to `crates/un7z/tests/generated_oracle.rs` over the already recorded coder-property grammar | Project differential-evidence rules and black-box execution of exact stock `7zz` 26.02; no oracle implementation source consulted | MIT OR Apache-2.0 plus the upstream notice for already adapted serialized grammar | 24 ephemeral archives; exact LZMA/LZMA2/PPMd/Delta properties, BZip2 packed headers, Deflate level distinction, filter/AES graphs, solid folder shapes, metadata, bytes, SHA-256, CRC-finalized verification, packed corruption, physical/logical truncation, CRC-correct property mutations, and resource/work/cancellation limits |
 | Stock-7zz PPMd positive vector | Original test integration in `crates/un7z/src/decode/ppmd.rs` and `fuzz/fuzz_targets/support.rs`; 49 packed bytes produced from project-authored text | Black-box `7-Zip (z) 26.02 (x64)` invocation `7zz a -t7z -m0=PPMd:o6:mem64k -mhc=off -mhe=off -bd -bb0`; no 7-Zip or p7zip source inspected | Project-authored input and original Rust test code MIT OR Apache-2.0; executable output retained only as a test vector | Exact command, properties, CRC, decoded/packed/archive SHA-256 values, and non-retention record in `CORPUS.md`; exact decode, every packed prefix, corruption, dictionary/output/work, and cancellation regressions |
 | In-process decoder fuzz seeds and structured mutator | Original `fuzz/fuzz_targets/support.rs`, `decoding.rs`, and `fuzz/tests/generated_seeds.rs` over already recorded serialized grammar | Project hostile-input requirements; fixed vectors and test-only primitive origins recorded above; no new decoder implementation or runtime API | MIT OR Apache-2.0 plus the upstream notice for adapted 7z/AES serialization; embedded Brotli vector under BSD-3-Clause OR MIT; RustCrypto crates MIT OR Apache-2.0 | 20 verified positive profiles, eight bounded mutation classes, deterministic exhaustive generator test, and fresh coverage-guided campaigns without an external corpus |
@@ -379,11 +392,12 @@ authored five-part encrypted and unencrypted Swap4 archives.
 
 The same policy applies to `crates/un7z/tests/generated_oracle.rs`. It creates
 synthetic source bytes and temporary stock-method, AES, and synthetic-prefix
-SFX archives with local `7zz` 26.02, compares them through the production Rust
-API, mutates packed data, and deletes the complete directory. The test contains
-no 7-Zip source or SFX stub and the generated archives are not redistributed.
-This test evidence changes no decoder implementation origin in the ledgers
-above.
+SFX archives with the selected exact `7zz` 26.02, compares them through the
+production Rust API, mutates packed data, and deletes the complete directory.
+The checksum-pinned Windows job continuously executes it and the Phase 5
+harness through the same black-box interface. The tests contain no 7-Zip
+source or SFX stub and the generated archives are not redistributed. This test
+evidence changes no decoder implementation origin in the ledgers above.
 
 The embedded raw LZMA EOS regression is the deterministic output of XZ Utils
 5.8.3 for the synthetic three-byte input `abc` using raw LZMA1 with a 4 KiB

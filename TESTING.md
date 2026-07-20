@@ -22,13 +22,24 @@ GitHub Actions runs all targets/features on Linux, macOS, and Windows and runs
 Rust 1.85 separately as the MSRV. Tests use only caller-selected temporary
 paths and make no automatic archive-name-based extraction decisions.
 
-A separate Windows capability job downloads the official stock 7-Zip 26.02
+A separate Windows oracle job downloads the official stock 7-Zip 26.02
 x64 installer, verifies its release SHA-256 before execution, installs it only
-under the ephemeral runner directory, and runs the ignored `-sni`/`-sns`
-classification probes. The 2026-07-20 follow-up at `24cf688` passed its
-ordinary-authoring control, Rust verification, ADS readback, and stage
+under the ephemeral runner directory, and runs the ignored corpus-free core,
+property-matrix, Phase 5, and `-sni`/`-sns` classification suites. The
+2026-07-20 capability follow-up at `24cf688` passed its ordinary-authoring
+control, Rust verification, ADS readback, and stage
 assertions. Raw AES, `-sni`, and `-sns` each stopped before archive creation
-with `System ERROR: Not implemented`; no semantic support is inferred.
+with `System ERROR: Not implemented`; no semantic support is inferred. The
+generated suites accept the same test-only executable override and require the
+exact standalone or Windows 26.02 banner before authoring any fixture.
+
+A separate Linux capability job downloads the official 26.02 x64 tarball,
+requires SHA-256
+`41aaba7b1235304ab5aa0624530c67ae829496cd29e875925271efdccc28c03e`,
+extracts only `7zz`, and publishes the structured capability report. The
+hard-link probe checks that Rust returns the expected bytes for both entries
+and records whether stock extraction preserves same-inode identity. Its first
+Linux result must be reviewed before the semantic stage is asserted.
 
 ## 32-bit
 
@@ -80,7 +91,8 @@ cargo test -p un7z --lib stock_7zz_ -- --ignored
 ```
 
 No external corpus is required for the stock-method generated matrix. With
-exact stock `7zz` 26.02 on `PATH` (or `UN7Z_7ZZ` set for the capability probe):
+exact stock `7zz` 26.02 on `PATH` (or `UN7Z_7ZZ` set for the generated or
+capability suites):
 
 ```text
 cargo test -p un7z --test generated_oracle --all-features --locked -- --ignored
@@ -130,10 +142,11 @@ CI additionally asserts a successful no-switch control and the reviewed
 `-sni`/`-sns` stage classifications, checks ADS byte readback before
 authoring, and publishes its bounded TSV diagnostics in the job summary. See
 `CAPABILITY_PROBES.md` for fixture hashes, the reviewed Windows results, and
-interpretation. Probe candidates are discovery evidence, not positive
-compatibility fixtures. The executable override is consumed only by this
-integration-test harness; production crates never inspect it or spawn the
-oracle.
+interpretation. The Linux job reports raw-AES main/filter authoring and link
+semantics through the same bounded records. Probe candidates are discovery
+evidence, not positive compatibility fixtures. The executable override is consumed only by the
+generated differential and capability integration-test harnesses; production
+crates never inspect it or spawn the oracle.
 
 No result is claimed for the literal `<CORPUS>` or `<MALFORMED_CORPUS>`
 placeholders; the owner confirmed that no such external sets are available.

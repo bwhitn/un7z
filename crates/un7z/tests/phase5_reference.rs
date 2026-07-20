@@ -38,11 +38,36 @@ fn command_failure(label: &str, output: &std::process::Output) -> String {
     )
 }
 
+fn oracle_command() -> Command {
+    match std::env::var_os("UN7Z_7ZZ") {
+        Some(executable) => Command::new(executable),
+        None => Command::new("7zz"),
+    }
+}
+
+fn require_exact_7zz() -> Result<(), Box<dyn StdError>> {
+    let output = oracle_command().arg("i").env("LC_ALL", "C").output()?;
+    if !output.status.success() {
+        return Err(command_failure("7zz version query", &output).into());
+    }
+    let listing = String::from_utf8(output.stdout)?;
+    let banner = listing
+        .lines()
+        .find(|line| line.starts_with("7-Zip "))
+        .ok_or_else(|| String::from("7zz version banner is missing"))?;
+    if !banner.starts_with("7-Zip (z) 26.02 ") && !banner.starts_with("7-Zip 26.02 ") {
+        return Err(
+            format!("Phase 5 oracle requires exact stock 7zz 26.02, found {banner}").into(),
+        );
+    }
+    Ok(())
+}
+
 fn oracle_metadata(
     path: &Path,
     password: Option<&str>,
 ) -> Result<Vec<OracleEntry>, Box<dyn StdError>> {
-    let mut command = Command::new("7zz");
+    let mut command = oracle_command();
     command.args(["l", "-slt"]);
     if let Some(password) = password {
         command.arg(format!("-p{password}"));
@@ -85,7 +110,7 @@ fn oracle_member(
     name: &str,
     password: Option<&str>,
 ) -> Result<Vec<u8>, Box<dyn StdError>> {
-    let mut command = Command::new("7zz");
+    let mut command = oracle_command();
     command.args(["x", "-so", "-y"]);
     if let Some(password) = password {
         command.arg(format!("-p{password}"));
@@ -236,7 +261,7 @@ fn create_method_archive(
     let source_name = format!("{name}.bin");
     fs::write(directory.join(&source_name), payload)?;
     let archive = directory.join(format!("{name}.7z"));
-    let mut command = Command::new("7zz");
+    let mut command = oracle_command();
     command
         .current_dir(directory)
         .args(["a", "-y", "-t7z", "-mhc=off"]);
@@ -312,8 +337,9 @@ fn assert_corruption_fails(path: &Path) -> Result<(), Box<dyn StdError>> {
 }
 
 #[test]
-#[ignore = "requires 7zz 26.02 or newer"]
+#[ignore = "requires exact stock 7zz 26.02"]
 fn generated_phase5_methods_match_7zz_and_reject_corruption() -> Result<(), Box<dyn StdError>> {
+    require_exact_7zz()?;
     let directory = temporary_directory("methods")?;
     let result = (|| -> Result<(), Box<dyn StdError>> {
         for (name, method, is_filter) in [
@@ -347,7 +373,7 @@ fn create_two_file_archive(
     fs::write(directory.join("first.bin"), method_payload("deflate64")?)?;
     fs::write(directory.join("second.bin"), method_payload("riscv")?)?;
     let archive = directory.join(format!("{name}.7z"));
-    let mut command = Command::new("7zz");
+    let mut command = oracle_command();
     command
         .current_dir(directory)
         .args(["a", "-y", "-t7z", "-m0=Deflate64"])
@@ -373,7 +399,7 @@ fn create_five_volume_archive(
     let source_name = format!("{name}.bin");
     fs::write(directory.join(&source_name), deterministic_bytes(50_000)?)?;
     let base = directory.join(format!("{name}.7z"));
-    let mut command = Command::new("7zz");
+    let mut command = oracle_command();
     command.current_dir(directory).args([
         "a",
         "-y",
@@ -404,8 +430,9 @@ fn create_five_volume_archive(
 }
 
 #[test]
-#[ignore = "requires 7zz 26.02 or newer"]
+#[ignore = "requires exact stock 7zz 26.02"]
 fn composed_solid_encrypted_and_five_volume_archives_match_7zz() -> Result<(), Box<dyn StdError>> {
+    require_exact_7zz()?;
     let directory = temporary_directory("composed")?;
     let result = (|| -> Result<(), Box<dyn StdError>> {
         let solid_encrypted = create_two_file_archive(&directory, "solid-encrypted", true, true)?;

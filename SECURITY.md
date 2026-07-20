@@ -237,15 +237,25 @@ the normal parser, model, and decoder invariants accept them.
 
 The Windows oracle job verifies the official 26.02 installer SHA-256 before
 executing it and installs it only inside the ephemeral runner. Its executable
-override is read only by the ignored integration probe; no production library,
-CLI, binding, or runtime path can invoke the oracle. In the hardened follow-up
-at `24cf688`, the ordinary control passed oracle and Rust verification and ADS
-creation passed byte-for-byte readback. Raw AES, `-sni`, and `-sns` then failed
-during authoring with `System ERROR: Not implemented`, so none supplied feature
+override is read only by ignored capability and generated-differential
+integration tests; no production library, CLI, binding, or runtime path can
+invoke the oracle. In the hardened follow-up at `24cf688`, the ordinary control
+passed oracle and Rust verification, and ADS creation passed byte-for-byte
+readback. Raw AES, `-sni`, and `-sns` then failed during authoring with
+`System ERROR: Not implemented`, so none supplied feature
 bytes to the Rust parser. The test keeps at most six sanitized diagnostic
 marker/context lines and fails on a changed stage classification. Those test
 diagnostics and assertions neither admit a runtime feature nor weaken any
 hostile-input boundary.
+
+The Linux capability job applies the same checksum-before-execution boundary
+to the official 26.02 x64 tarball, extracts only the oracle executable, and
+deletes every generated archive with its temporary directory. The hard-link
+case now extracts both members through the production Rust API and requires
+their bytes to match before reporting `rust-read=accepted`; same-inode identity
+remains an oracle-host observation. The packaged 26.02 manual documents `-sni`
+and `-sns` storage as WIM-only, so their Windows rejection does not justify
+adding an unrelated 7z parser path.
 
 The generated method/property matrix is positive differential evidence, not an
 allocation or validation bypass. Requested dictionary/model sizes are asserted
@@ -255,3 +265,7 @@ physical truncation, low dictionary/output/work budgets, and cancellation for
 every applicable generated form. CRC-correct plain-header mutations reach
 logical packed truncation and oversized/empty coder-property validation without
 disabling either header CRC. Its temporary archives are deleted.
+
+The checksum-pinned CI invocation does not trust those archives: it runs the
+same production limits, CRC checks, corruption cases, and exact temporary-tree
+cleanup as the local opt-in harnesses.

@@ -81,6 +81,53 @@ jobs:
           if ($exitCode -ne 0) {
             exit $exitCode
           }
+      - name: Run exact-version generated core and property fixtures
+        run: cargo test -p un7z --test generated_oracle --all-features --locked -- --ignored
+      - name: Run exact-version generated Phase 5 fixtures
+        run: cargo test -p un7z --test phase5_reference --all-features --locked -- --ignored
+
+  linux-7zip-capability:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install checksum-pinned stock 7-Zip 26.02 oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          oracle_root="$RUNNER_TEMP/un7z-7zip-26.02-linux"
+          mkdir -p "$oracle_root"
+          archive="$oracle_root/7z2602-linux-x64.tar.xz"
+          curl --fail --location --retry 3 \
+            --output "$archive" \
+            "https://github.com/ip7z/7zip/releases/download/26.02/7z2602-linux-x64.tar.xz"
+          expected="41aaba7b1235304ab5aa0624530c67ae829496cd29e875925271efdccc28c03e"
+          observed="$(sha256sum "$archive" | cut -d ' ' -f 1)"
+          if [[ "$observed" != "$expected" ]]; then
+            echo "stock 7-Zip 26.02 Linux archive SHA-256 mismatch: $observed" >&2
+            exit 1
+          fi
+          install_directory="$oracle_root/installed"
+          mkdir -p "$install_directory"
+          tar -xJf "$archive" -C "$install_directory" 7zz
+          oracle="$install_directory/7zz"
+          chmod +x "$oracle"
+          echo "UN7Z_7ZZ=$oracle" >> "$GITHUB_ENV"
+      - name: Run and summarize exact-version Linux link capability probes
+        shell: bash
+        run: |
+          set +e
+          output="$(cargo test -p un7z --test capability_probe --all-features --locked stock_7zz_2602_capability_probe_report -- --ignored --nocapture 2>&1)"
+          exit_code=$?
+          set -e
+          printf '%s\n' "$output"
+          {
+            echo "## Exact stock 7-Zip 26.02 Linux capability probe"
+            echo "<pre>"
+            printf '%s\n' "$output" | grep 'UN7Z_7ZZ_PROBE' || true
+            echo "</pre>"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$exit_code"
 
   msrv:
     runs-on: ubuntu-latest

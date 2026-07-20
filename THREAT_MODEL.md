@@ -318,19 +318,31 @@ are not trusted corpus inputs.
 On Windows CI, the black-box oracle installer is fetched from the pinned
 official 26.02 release URL, checked against its release SHA-256 before
 execution, and installed in an ephemeral runner directory. The test-only
-executable override is not read by production code. The job's raw-AES, `-sni`,
-and `-sns` records are classification output only. In the hardened follow-up at
-`24cf688`, the no-switch control passed oracle and Rust verification and ADS
-creation passed byte-for-byte readback. All three candidate authoring commands
-then returned `System ERROR: Not implemented` before creating an archive, so
+executable override is read only by the capability and generated-differential
+tests, never by production code. The job's raw-AES, `-sni`, and `-sns` records
+are classification output only. In the hardened follow-up at `24cf688`, the
+no-switch control passed oracle and Rust verification, and ADS creation passed
+byte-for-byte readback. All three candidate authoring commands then returned
+`System ERROR: Not implemented` before creating an archive, so
 no feature bytes crossed into the Rust parser and no support claim followed.
 The probe retains bounded post-error context and makes a stage change fail for
 explicit review. Oracle diagnostics are sanitized and bounded before
 publication in the CI summary.
 
+The Linux capability job independently pins the official 26.02 x64 tarball,
+extracts only `7zz`, and reports host link semantics without retaining the
+archive. A hard-link result is not accepted on the Rust side merely because
+archive verification succeeds: both logical entries must extract to the
+project-authored bytes. Same-inode restoration is kept separate because the
+core intentionally has no automatic filesystem extraction policy. The
+packaged oracle manual identifies NT security and ADS storage as WIM-only, so
+those switches do not expand this 7z parser's hostile-input surface.
+
 The generated property matrix has the same test-only boundary. It bounds its
 deterministic source sizes, disables unintended automatic filters, verifies the
 serialized decoder-visible properties, and deletes its unique temporary tree.
+Running that matrix and the Phase 5 matrix in the checksum-pinned Windows job
+does not promote their output to trusted input or retained corpus material.
 It never selects runtime methods or limits, and an oracle-authored archive is
 still processed as hostile input by the production parser and decoder.
 Semantic mutations recompute both stored-next-header and start-header CRCs so

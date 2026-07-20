@@ -220,7 +220,7 @@ The capability-probe integration test adds no dependency. It uses
 exact-version `7zz` test oracle. No oracle executable or generated archive is
 packaged or committed.
 
-The Windows CI probe obtains the official 26.02 x64 installer from the
+The Windows CI oracle job obtains the official 26.02 x64 installer from the
 `ip7z/7zip` GitHub release and checks the release-published SHA-256
 `6745fa76dc2ea031596d8678f6f6b99c3c1b435b4164a63485adbbc7b8d82ef0`
 before execution. It installs only inside the ephemeral runner and supplies
@@ -230,6 +230,16 @@ tool, source input, runtime fallback, or runtime-license exception. The
 Windows control/ADS-readback checks and bounded diagnostic collector use only
 `std::fs` and existing test code; publishing their TSV records through the
 built-in GitHub job summary adds no action, package, or runtime dependency.
+The generated core/property and Phase 5 harnesses use the same test-only
+override and add no action, Cargo dependency, or lockfile change.
+
+The Linux capability job uses the official 26.02 x64 tarball with release
+SHA-256
+`41aaba7b1235304ab5aa0624530c67ae829496cd29e875925271efdccc28c03e`.
+It extracts only the `7zz` oracle into the ephemeral runner and adds no runtime
+artifact, source input, Cargo dependency, or license exception. The bundled
+manual is referenced only to classify WIM-only command switches; it is not
+vendored or packaged.
 
 The generated method/property matrix likewise adds no dependency or lockfile
 change. It uses `std::process::Command`, the existing `sha2` test use, and the

@@ -61,6 +61,12 @@ headers are invalidated separately. Encrypted-header inner properties are not
 pretended to be directly mutable, but those cases retain corruption,
 truncation, password, resource, work, and cancellation coverage.
 
+The checksum-pinned Windows oracle job is configured to regenerate this core
+and property matrix plus the Phase 5 matrix with the exact stock 26.02
+executable. Its archives exist only in runner temporary directories. This
+turns the existing opt-in evidence into a repeatable gate without broadening a
+codec or metadata claim.
+
 | Method/filter | Pinned Go reference | Rust status | Rust differential evidence |
 | --- | --- | --- | --- |
 | Copy | Registered; bundled fixture | Supported for validated graphs | `copy.7z`; corrupted-member, packed/folder/member CRC, output/work/cancellation regressions |
@@ -104,6 +110,7 @@ truncation, password, resource, work, and cancellation coverage.
 | Timestamps | Inline properties parsed | Inline and external raw Windows FILETIME creation/access/modification values are preserved |
 | Windows/POSIX attributes and modes | Parsed/mapped | Inline and external raw Windows attributes are preserved; Unix-extension high bits expose a POSIX mode without applying it to a filesystem |
 | Symlink metadata | Mode mapping exists; no bundled corpus assertion | Unix-extension mode identifies symlinks and member bytes preserve the target; a generated `7zz -snl` archive matches mode and target bytes |
+| Hard links | `-snh` capability probe | Rust preserves both entries and returns the expected bytes for each. The observed macOS oracle restored two ordinary files; a checksum-pinned Linux semantic probe is configured but not yet reviewed. No automatic filesystem extraction or inode-preservation claim exists |
 | Duplicate names | Go `fs.FS` layer marks duplicates | Preserved in archive order as distinct entries; there is no automatic extraction/collision policy |
 | External folder/name/time/attribute streams | Explicit TODO errors | Supported for main-stream folder definitions and referenced Name/time/attribute/StartPos data. `DataIndex` selects a decoded AdditionalStreamsInfo folder output; folder definitions are staged, decoded, checksum-verified, reparsed for the exact declared folder count, consumed exactly, and fully revalidated. Synthetic one- and two-folder forms are accepted by stock `7zz` 26.02; encrypted, truncation, trailing-byte, index, CRC, coder-count, and output-limit regressions exercise the production API |
 | Additional streams | Explicit TODO error | Parsed and decoded once per folder when referenced by external folder definitions or supported external file properties. `Archive::verify` sequentially decodes every folder, including unreferenced folders, and verifies packed, folder, and logical-substream CRCs while sharing limits and operation control with main streams. Unreferenced stream bytes are not exposed by the public API |
@@ -124,16 +131,21 @@ is asserted and its deterministic synthetic fixture hashes are recorded in
 The current run does not identify a new confirmed decoder gap. The alternative
 Copy-coder candidate is rejected as unsupported by both implementations;
 unknown packed and non-final sizes are rejected by `7zz` and remain typed Rust
-boundaries; and raw `AES256CBC` authoring fails with `E_NOTIMPL`. A `-snl`
+boundaries; and raw `AES256CBC` main-coder and Copy-chain authoring fail with
+`E_NOTIMPL` on the observed macOS host. A `-snl`
 archive succeeds in both implementations. `-snh` produces an archive both can
-verify, but stock extraction on the observed macOS host does not recreate a
-hard-link relationship. A checksum-pinned exact-26.02 Windows follow-up at
+verify and Rust returns the expected bytes for both entries, but stock
+extraction on the observed macOS host does not recreate a hard-link
+relationship. A checksum-pinned exact-26.02 Windows follow-up at
 `24cf688` passed the ordinary-authoring control and Rust verification, and
 confirmed ADS source creation by byte-for-byte readback. That oracle then
 rejected raw AES, `-sni`, and `-sns` authoring with exit 2 and
 `System ERROR: Not implemented`, so it produced no corresponding archive for
-Rust to read. This narrows the observed oracle/environment result but remains
-neither a compatibility claim nor a confirmed Rust decoder gap.
+Rust to read. The official manual in the checksum-verified Linux 26.02 package
+documents `-sni` and `-sns` storage as WIM-only, so those switches are not 7z
+compatibility gaps. A separately pinned Linux probe is configured to determine
+whether `-snh` preserves hard-link identity on that host; no semantic claim is
+made before its first result is reviewed.
 
 Candidate acceptance, warning, or rejection is not itself a format-validity
 claim. No capability row moves to supported without an accepted fixture,
