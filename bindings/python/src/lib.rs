@@ -14,6 +14,7 @@ mod callback;
 mod config;
 mod errors;
 mod metadata;
+mod stream;
 
 /// Native implementation module installed as `un7z._native`.
 #[pymodule]
@@ -26,11 +27,18 @@ fn native_module(module: &Bound<'_, PyModule>) -> PyResult<()> {
         module.add_class::<config::PyCancellationToken>()?;
         module.add_class::<metadata::PyEntry>()?;
         module.add_class::<metadata::PyArchiveResources>()?;
+        module.add_class::<stream::PyCompressedStream>()?;
+        module.add_class::<stream::PyStreamInfo>()?;
         module.add_function(wrap_pyfunction!(archive::open_bytes, module)?)?;
         module.add_function(wrap_pyfunction!(archive::open_path, module)?)?;
         module.add_function(wrap_pyfunction!(archive::open_volumes, module)?)?;
+        module.add_function(wrap_pyfunction!(stream::open_stream_bytes, module)?)?;
+        module.add_function(wrap_pyfunction!(stream::open_stream_path, module)?)?;
         module.add("DEFAULT_MAX_WORK_UNITS", config::DEFAULT_WORK_UNITS)?;
-        module.add("IMPLEMENTATION_STATUS", "phase-7-python-binding-pre-alpha")?;
+        module.add(
+            "IMPLEMENTATION_STATUS",
+            "phase-7-python-binding-plus-streams-pre-alpha",
+        )?;
         Ok(())
     })
 }

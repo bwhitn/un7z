@@ -14,6 +14,26 @@ import un7z._native as native
 
 
 SIGNATURE = b"7z\xbc\xaf\x27\x1c"
+HELLO_DOT_Z = bytes.fromhex(
+    "1f9d9068cab061f306441d3769f08018f3a60d1c3965e6cc5100"
+)
+
+
+def raw_lz4_frame(payload: bytes) -> bytes:
+    if len(payload) > 64 * 1024:
+        raise ValueError("test LZ4 payload exceeds one block")
+    block = b""
+    if payload:
+        block_header = (len(payload) | (1 << 31)).to_bytes(4, "little")
+        block = block_header + payload
+    return b"\x04\x22\x4d\x18\x60\x40\x82" + block + b"\0\0\0\0"
+
+
+def raw_zstandard_frame(payload: bytes) -> bytes:
+    if len(payload) > 255:
+        raise ValueError("test Zstandard payload exceeds one-byte content size")
+    block_header = ((len(payload) << 3) | 1).to_bytes(4, "little")[:3]
+    return b"\x28\xb5\x2f\xfd\x20" + bytes((len(payload),)) + block_header + payload
 
 
 def encode_uint(value: int) -> bytes:
@@ -200,9 +220,112 @@ class BindingTests(unittest.TestCase):
         self.assertEqual(un7z.__version__, "0.1.0")
         self.assertEqual(native.__name__, "un7z._native")
         self.assertEqual(un7z.Archive.__module__, "un7z._native")
+        self.assertEqual(un7z.CompressedStream.__module__, "un7z._native")
+        self.assertEqual(un7z.StreamInfo.__module__, "un7z._native")
         self.assertEqual(un7z.FormatError.__module__, "un7z._native")
-        self.assertEqual(native.IMPLEMENTATION_STATUS, "phase-7-python-binding-pre-alpha")
+        self.assertEqual(
+            native.IMPLEMENTATION_STATUS,
+            "phase-7-python-binding-plus-streams-pre-alpha",
+        )
         self.assertGreater(native.DEFAULT_MAX_WORK_UNITS, 0)
+
+    def test_standalone_stream_info_and_bounded_extraction(self) -> None:
+        lz4_payload = b"standalone lz4 " * 2_000
+        cases = [
+            (raw_lz4_frame(lz4_payload), "lz4", lz4_payload),
+            (raw_zstandard_frame(b"standalone zstandard"), "zstandard", b"standalone zstandard"),
+            (HELLO_DOT_Z, "unix-compress", b"hello unix compress\n"),
+        ]
+        for encoded, expected_format, expected in cases:
+            with self.subTest(format=expected_format):
+                stream = un7z.open_stream_bytes(encoded)
+                self.assertIsInstance(stream, un7z.CompressedStream)
+                self.assertEqual(stream.info.format, expected_format)
+                self.assertEqual(stream.info.compressed_size, len(encoded))
+                self.assertEqual(stream.retained_input_bytes, len(encoded))
+
+                writer = io.BytesIO()
+                self.assertEqual(stream.extract_to(writer), len(expected))
+                self.assertEqual(writer.getvalue(), expected)
+
+                chunks: list[bytes] = []
+                self.assertEqual(stream.stream(lambda chunk: chunks.append(chunk)), len(expected))
+                self.assertEqual(b"".join(chunks), expected)
+                self.assertLessEqual(max(map(len, chunks)), 8 * 1024)
+                self.assertIsNone(stream.verify())
+
+        lz4_info = un7z.open_stream_bytes(cases[0][0]).info
+        self.assertEqual(lz4_info.frame_count, 1)
+        self.assertEqual(lz4_info.maximum_block_bytes, 64 * 1024)
+        self.assertIsNone(lz4_info.uncompressed_size)
+        zstandard_info = un7z.open_stream_bytes(cases[1][0]).info
+        self.assertEqual(zstandard_info.uncompressed_size, len(cases[1][2]))
+        self.assertEqual(zstandard_info.maximum_window_bytes, len(cases[1][2]))
+        compress_info = un7z.open_stream_bytes(cases[2][0]).info
+        self.assertEqual(compress_info.maximum_code_bits, 16)
+        self.assertTrue(compress_info.block_mode)
+        self.assertEqual(compress_info.decoder_dictionary_bytes, 256 * 1024)
+
+    def test_standalone_stream_explicit_formats_paths_and_failures(self) -> None:
+        zstandard = raw_zstandard_frame(b"path stream")
+        self.assertEqual(
+            un7z.open_stream_bytes(zstandard, format="zstd").info.format,
+            "zstandard",
+        )
+        self.assertEqual(
+            un7z.open_stream_bytes(HELLO_DOT_Z, format="z").info.format,
+            "unix-compress",
+        )
+        with self.assertRaises(ValueError):
+            un7z.open_stream_bytes(zstandard, format="zip")
+        with self.assertRaises(un7z.FormatError) as caught:
+            un7z.open_stream_bytes(zstandard, format="lz4")
+        self.assertEqual(caught.exception.format, "lz4")
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "input.zst"
+            path.write_bytes(zstandard)
+            stream = un7z.open_stream_path(path)
+            writer = io.BytesIO()
+            self.assertEqual(stream.extract_to(writer), len(b"path stream"))
+            self.assertEqual(writer.getvalue(), b"path stream")
+            self.assertEqual(list(pathlib.Path(directory).iterdir()), [path])
+
+        limited = un7z.Limits(max_total_output_bytes=4)
+        with self.assertRaises(un7z.LimitExceededError) as caught:
+            un7z.open_stream_bytes(zstandard, limits=limited)
+        self.assertEqual(caught.exception.limit, "total_output_bytes")
+
+        stream = un7z.open_stream_bytes(HELLO_DOT_Z, limits=limited)
+        with self.assertRaises(un7z.LimitExceededError):
+            stream.verify()
+        with self.assertRaises(un7z.LimitExceededError) as caught:
+            un7z.open_stream_bytes(
+                HELLO_DOT_Z,
+                limits=un7z.Limits(max_stream_frames=0),
+            )
+        self.assertEqual(caught.exception.limit, "stream_frames")
+        with self.assertRaises(un7z.LimitExceededError) as caught:
+            un7z.open_stream_bytes(zstandard, max_work_units=1)
+        self.assertEqual(caught.exception.limit, "work_units")
+
+        class MarkerError(Exception):
+            pass
+
+        stream = un7z.open_stream_bytes(raw_lz4_frame(b"callback"))
+
+        def fail(_chunk: bytes) -> None:
+            raise MarkerError("stream callback marker")
+
+        with self.assertRaisesRegex(MarkerError, "stream callback marker"):
+            stream.stream(fail)
+        with self.assertRaises(un7z.CancelledError):
+            stream.stream(lambda _chunk: False)
+
+        cancellation = un7z.CancellationToken()
+        cancellation.cancel()
+        with self.assertRaises(un7z.CancelledError):
+            stream.verify(cancellation=cancellation)
 
     def test_open_list_raw_metadata_and_resources(self) -> None:
         payload = b"python binding"
@@ -513,23 +636,25 @@ class BindingTests(unittest.TestCase):
             max_total_coders=5,
             max_streams_per_folder=6,
             max_total_streams=7,
-            max_substreams=8,
-            max_header_properties=9,
-            max_coder_property_bytes=10,
-            max_name_bytes_per_entry=11,
-            max_total_name_bytes=12,
-            max_dictionary_bytes=13,
-            max_entry_output_bytes=14,
-            max_total_output_bytes=15,
-            max_volumes=16,
-            max_total_input_bytes=17,
-            max_kdf_power=18,
-            max_recursion_depth=19,
-            sfx_scan_limit=20,
+            max_stream_frames=8,
+            max_substreams=9,
+            max_header_properties=10,
+            max_coder_property_bytes=11,
+            max_name_bytes_per_entry=12,
+            max_total_name_bytes=13,
+            max_dictionary_bytes=14,
+            max_entry_output_bytes=15,
+            max_total_output_bytes=16,
+            max_volumes=17,
+            max_total_input_bytes=18,
+            max_kdf_power=19,
+            max_recursion_depth=20,
+            sfx_scan_limit=21,
         )
         self.assertEqual(limits.max_header_bytes, 1)
-        self.assertEqual(limits.max_total_input_bytes, 17)
-        self.assertEqual(limits.sfx_scan_limit, 20)
+        self.assertEqual(limits.max_total_input_bytes, 18)
+        self.assertEqual(limits.max_stream_frames, 8)
+        self.assertEqual(limits.sfx_scan_limit, 21)
 
         archive = un7z.open_bytes(copy_archive(b"secret state"), password="temporary")
         self.assertGreater(archive.resources.password_bytes, 0)

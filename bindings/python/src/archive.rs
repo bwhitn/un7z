@@ -17,14 +17,14 @@ use crate::{
     metadata::{PyArchiveResources, PyEntry},
 };
 
-fn copy_archive_input(
+pub(crate) fn copy_input(
     py: Python<'_>,
     data: &Bound<'_, PyBytes>,
     limits: un7z::Limits,
 ) -> PyResult<Vec<u8>> {
     let source = data.as_bytes();
     let requested = u64::try_from(source.len()).map_err(|_| {
-        PyOverflowError::new_err("archive input length is not representable as u64")
+        PyOverflowError::new_err("compressed input length is not representable as u64")
     })?;
     if requested > limits.max_total_input_bytes() {
         return Err(map_core_error(
@@ -39,7 +39,7 @@ fn copy_archive_input(
     let mut owned = Vec::new();
     owned
         .try_reserve_exact(source.len())
-        .map_err(|_| PyMemoryError::new_err("unable to allocate archive input copy"))?;
+        .map_err(|_| PyMemoryError::new_err("unable to allocate compressed input copy"))?;
     owned.extend_from_slice(source);
     Ok(owned)
 }
@@ -79,7 +79,7 @@ pub(crate) fn open_bytes(
     guard(|| {
         let limits = limits_or_default(limits.as_deref());
         let cancellation = cancellation_or_new(cancellation.as_deref());
-        let bytes = copy_archive_input(py, data, limits)?;
+        let bytes = copy_input(py, data, limits)?;
         let password = password.map(Zeroizing::new);
         detached_core(py, move || {
             open_bytes_core(bytes, limits, password, cancellation, max_work_units)

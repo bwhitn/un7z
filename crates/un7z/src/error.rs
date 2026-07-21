@@ -13,7 +13,7 @@ use std::{fmt, io};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ErrorKind {
-    /// The input does not conform to the 7z format.
+    /// The input does not conform to its selected compressed format.
     Format,
     /// A required checksum did not match.
     Checksum,
@@ -89,6 +89,8 @@ pub enum LimitKind {
     StreamsPerFolder,
     /// Input plus output stream ports across the parsed header.
     TotalStreams,
+    /// Data and skippable frames in one compressed stream.
+    StreamFrames,
     /// Substreams across the parsed header.
     Substreams,
     /// Length-delimited properties in one next header.
@@ -129,6 +131,7 @@ impl fmt::Display for LimitKind {
             Self::TotalCoders => "total coders",
             Self::StreamsPerFolder => "streams per folder",
             Self::TotalStreams => "total streams",
+            Self::StreamFrames => "compressed stream frames",
             Self::Substreams => "substreams",
             Self::HeaderProperties => "header properties",
             Self::CoderPropertyBytes => "coder property bytes",
@@ -148,13 +151,20 @@ impl fmt::Display for LimitKind {
     }
 }
 
-/// A failure produced by opening, parsing, validating, or decoding an archive.
+/// A failure produced by opening, parsing, validating, or decoding compressed input.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
     /// The bytes violate a format invariant.
     Format {
         /// A bounded diagnostic that does not contain secret material.
+        detail: String,
+    },
+    /// A standalone compressed stream violates a format invariant.
+    StreamFormat {
+        /// Stable lowercase format name.
+        format: String,
+        /// A bounded diagnostic that does not contain output data.
         detail: String,
     },
     /// A checksum did not match.
@@ -164,6 +174,13 @@ pub enum Error {
         /// The member index when `scope` is [`ChecksumScope::Member`].
         member_index: Option<u64>,
     },
+    /// A standalone compressed frame checksum did not match.
+    StreamChecksum {
+        /// Stable lowercase format name.
+        format: String,
+        /// Zero-based data-frame index.
+        frame_index: u64,
+    },
     /// No decoder is registered for a method identifier.
     UnsupportedMethod {
         /// The exact method identifier from the validated archive model.
@@ -172,6 +189,13 @@ pub enum Error {
     /// A recognized, valid feature has not been implemented.
     UnsupportedFeature {
         /// A stable feature name.
+        feature: String,
+    },
+    /// A recognized standalone compressed-stream feature is unavailable.
+    UnsupportedStreamFeature {
+        /// Stable lowercase format name.
+        format: String,
+        /// Stable feature identifier.
         feature: String,
     },
     /// Attacker-controlled work exceeded a configured bound.
@@ -203,10 +227,12 @@ impl Error {
     #[must_use]
     pub const fn kind(&self) -> ErrorKind {
         match self {
-            Self::Format { .. } => ErrorKind::Format,
-            Self::Checksum { .. } => ErrorKind::Checksum,
+            Self::Format { .. } | Self::StreamFormat { .. } => ErrorKind::Format,
+            Self::Checksum { .. } | Self::StreamChecksum { .. } => ErrorKind::Checksum,
             Self::UnsupportedMethod { .. } => ErrorKind::UnsupportedMethod,
-            Self::UnsupportedFeature { .. } => ErrorKind::UnsupportedFeature,
+            Self::UnsupportedFeature { .. } | Self::UnsupportedStreamFeature { .. } => {
+                ErrorKind::UnsupportedFeature
+            }
             Self::LimitExceeded { .. } => ErrorKind::LimitExceeded,
             Self::MissingVolume { .. } => ErrorKind::MissingVolume,
             Self::PasswordRequired => ErrorKind::PasswordRequired,
@@ -221,6 +247,9 @@ impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Format { detail } => write!(formatter, "invalid 7z format: {detail}"),
+            Self::StreamFormat { format, detail } => {
+                write!(formatter, "invalid {format} stream: {detail}")
+            }
             Self::Checksum {
                 scope,
                 member_index: Some(index),
@@ -229,6 +258,13 @@ impl fmt::Display for Error {
                 scope,
                 member_index: None,
             } => write!(formatter, "{scope} checksum mismatch"),
+            Self::StreamChecksum {
+                format,
+                frame_index,
+            } => write!(
+                formatter,
+                "{format} checksum mismatch at frame {frame_index}"
+            ),
             Self::UnsupportedMethod { method_id } => {
                 formatter.write_str("unsupported 7z method 0x")?;
                 for byte in method_id {
@@ -238,6 +274,9 @@ impl fmt::Display for Error {
             }
             Self::UnsupportedFeature { feature } => {
                 write!(formatter, "unsupported 7z feature: {feature}")
+            }
+            Self::UnsupportedStreamFeature { format, feature } => {
+                write!(formatter, "unsupported {format} stream feature: {feature}")
             }
             Self::LimitExceeded {
                 limit,
@@ -306,6 +345,7 @@ mod tests {
             (LimitKind::TotalCoders, "total coders"),
             (LimitKind::StreamsPerFolder, "streams per folder"),
             (LimitKind::TotalStreams, "total streams"),
+            (LimitKind::StreamFrames, "compressed stream frames"),
             (LimitKind::Substreams, "substreams"),
             (LimitKind::HeaderProperties, "header properties"),
             (LimitKind::CoderPropertyBytes, "coder property bytes"),
@@ -353,6 +393,14 @@ mod tests {
                 "invalid 7z format: bad record",
             ),
             (
+                Error::StreamFormat {
+                    format: String::from("lz4"),
+                    detail: String::from("bad frame"),
+                },
+                ErrorKind::Format,
+                "invalid lz4 stream: bad frame",
+            ),
+            (
                 Error::Checksum {
                     scope: ChecksumScope::Folder,
                     member_index: None,
@@ -369,6 +417,14 @@ mod tests {
                 "member checksum mismatch at member 7",
             ),
             (
+                Error::StreamChecksum {
+                    format: String::from("zstandard"),
+                    frame_index: 3,
+                },
+                ErrorKind::Checksum,
+                "zstandard checksum mismatch at frame 3",
+            ),
+            (
                 Error::UnsupportedMethod {
                     method_id: Box::from([0x21_u8]),
                 },
@@ -381,6 +437,14 @@ mod tests {
                 },
                 ErrorKind::UnsupportedFeature,
                 "unsupported 7z feature: test feature",
+            ),
+            (
+                Error::UnsupportedStreamFeature {
+                    format: String::from("lz4"),
+                    feature: String::from("external-dictionary"),
+                },
+                ErrorKind::UnsupportedFeature,
+                "unsupported lz4 stream feature: external-dictionary",
             ),
             (
                 Error::LimitExceeded {

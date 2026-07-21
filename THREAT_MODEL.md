@@ -18,7 +18,8 @@ An attacker may control every byte of every supplied volume, volume length and
 read behavior when callbacks are used, archive ordering and duplication,
 declared counts/sizes/offsets, coder graphs and properties, compressed data,
 checksums, UTF-16 names, timestamps/attributes/modes, encryption parameters,
-and password prompts. They may truncate or replace a later volume and may cause
+password prompts, standalone LZ4/Zstandard frame fields, and Unix `.Z` codes.
+They may truncate or replace a later volume and may cause
 short reads, interruptions, and sink failures.
 
 The caller is trusted to select limits, password, volume provider, entry, and
@@ -47,6 +48,9 @@ policy.
    or volume handles only through the separate binding adapter. Rust-only work
    runs detached from the interpreter; Python is reattached only for a specific
    provider or sink call, and no borrowed Python reference crosses that region.
+9. **Standalone-stream boundary:** bytes become a bounded immutable LZ4,
+   Zstandard, or Unix `.Z` layout without entering the 7z archive model. No
+   filename, member mapping, metadata, CRC, or volume semantics are invented.
 
 ## Threats and required mitigations
 
@@ -95,6 +99,14 @@ before every literal or match. Its fixed window is charged before packed input
 is copied. IA64, ARM Thumb, RISC-V, Swap2, and Swap4 are size-preserving and
 use checked ranges/conversions with work checkpoints throughout their scans.
 
+Standalone frames can amplify through frame counts, skippable payloads,
+decoder windows, and unknown output size. `max_stream_frames` bounds the
+layout table, input ranges are validated before decode, and declared output or
+window sizes are rejected before decoder construction. Unix `.Z` checks and
+charges its complete table storage before allocation and checkpoints width
+changes, codes, prefix walks, input chunks, and output chunks. Every decoded
+byte remains subject to entry and total output limits.
+
 ### Graph confusion
 
 Invalid or duplicate bind pairs, packed indices, cycles, disconnected ports,
@@ -112,6 +124,14 @@ encoded-header, folder, and member CRCs have separate scopes. Helpers finish
 verification before success; streaming callers must call `finish()`. Missing
 CRC is reported as metadata,
 not silently invented.
+
+LZ4 header, block, and content checksums and Zstandard content checksums are
+verified only when their frame declares them. Success follows decoder and
+checksum finalization, but caller-owned writers can already have observed
+bytes. Unix `.Z` defines no checksum or decoded size; an EOF after a complete
+code can represent either an intentionally short valid stream or a
+clean-boundary truncation. The implementation reports decoder completion and
+does not label such output verified.
 
 ### Password disclosure or cross-archive state
 
@@ -194,6 +214,12 @@ retained by a Python writer or callback is caller-owned and cannot be included
 in the archive resource account. Native output therefore uses bounded chunks
 and provides no complete-output return API by default.
 
+Standalone Python writer/callback operations use the same attach/detach,
+bounded-copy, exception-preservation, cancellation, and unwind boundaries.
+They never create an output path. Their successful return finalizes all
+declared LZ4/Zstandard checksums, while Unix `.Z` retains its documented lack
+of an integrity field.
+
 Every archive-processing or caller-invoking native operation has an explicit
 unwind boundary, and the PyO3 trampoline protects trivial/generated accessors.
 Release artifacts
@@ -220,6 +246,7 @@ per-archive zeroizing password path.
 | Total coders | 100,000 |
 | Stream ports per folder | 1,024 |
 | Total stream ports | 200,000 |
+| Standalone data/skippable frames | 100,000 |
 | Substreams | 100,000 |
 | Length-delimited header properties | 100,000 |
 | Coder property bytes | 1 MiB |
@@ -291,6 +318,13 @@ callbacks can observe unverified bytes before a trailing CRC failure, but a
 native extraction call does not return success until the core finalizes all
 applicable checks. Batch extraction uses one shared operation budget/token and
 the core's one-decode-per-folder natural-order traversal.
+
+The separate standalone attack surface accepts owned bytes or one path as
+LZ4, Zstandard, or Unix `.Z`, exposes concrete bounded metadata, and writes
+only to caller-selected sinks. It shares `Limits`, `WorkBudget`, and
+`CancellationToken` but has no password, archive member, volume, or path-policy
+semantics. LZ4/Zstandard external dictionaries are typed unsupported. The CLI
+remains 7z-only.
 
 All known substream sizes in a selected folder are preflighted against the
 entry limit, not only the requested member. For an unknown final substream the

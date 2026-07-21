@@ -14,11 +14,14 @@ class Un7zError(Exception):
 
 class FormatError(Un7zError):
     detail: str
+    format: str
 
 
 class ChecksumError(Un7zError):
     scope: str
     member_index: int | None
+    format: str
+    frame_index: int | None
 
 
 class UnsupportedMethodError(Un7zError):
@@ -28,6 +31,7 @@ class UnsupportedMethodError(Un7zError):
 
 class UnsupportedFeatureError(Un7zError):
     feature: str
+    format: str
 
 
 class LimitExceededError(Un7zError):
@@ -65,6 +69,7 @@ class Limits:
         max_total_coders: int | None = ...,
         max_streams_per_folder: int | None = ...,
         max_total_streams: int | None = ...,
+        max_stream_frames: int | None = ...,
         max_substreams: int | None = ...,
         max_header_properties: int | None = ...,
         max_coder_property_bytes: int | None = ...,
@@ -93,6 +98,8 @@ class Limits:
     def max_streams_per_folder(self) -> int: ...
     @property
     def max_total_streams(self) -> int: ...
+    @property
+    def max_stream_frames(self) -> int: ...
     @property
     def max_substreams(self) -> int: ...
     @property
@@ -217,6 +224,66 @@ class Archive:
     ) -> int: ...
 
 
+class StreamInfo:
+    @property
+    def format(self) -> str: ...
+    @property
+    def compressed_size(self) -> int: ...
+    @property
+    def uncompressed_size(self) -> int | None: ...
+    @property
+    def frame_count(self) -> int | None: ...
+    @property
+    def skippable_frame_count(self) -> int | None: ...
+    @property
+    def content_checksum_frame_count(self) -> int | None: ...
+    @property
+    def block_checksum_frame_count(self) -> int | None: ...
+    @property
+    def dictionary_frame_count(self) -> int | None: ...
+    @property
+    def legacy_frame_count(self) -> int | None: ...
+    @property
+    def maximum_block_bytes(self) -> int | None: ...
+    @property
+    def maximum_window_bytes(self) -> int | None: ...
+    @property
+    def maximum_code_bits(self) -> int | None: ...
+    @property
+    def block_mode(self) -> bool | None: ...
+    @property
+    def decoder_dictionary_bytes(self) -> int | None: ...
+
+
+class CompressedStream:
+    @property
+    def info(self) -> StreamInfo: ...
+    @property
+    def limits(self) -> Limits: ...
+    @property
+    def retained_input_bytes(self) -> int: ...
+    def verify(
+        self,
+        *,
+        cancellation: CancellationToken | None = ...,
+        max_work_units: int = ...,
+    ) -> None: ...
+    def extract_to(
+        self,
+        writer: _Writer,
+        *,
+        cancellation: CancellationToken | None = ...,
+        max_work_units: int = ...,
+    ) -> int: ...
+    def stream(
+        self,
+        callback: Callable[[bytes], bool | None],
+        *,
+        cancellation: CancellationToken | None = ...,
+        max_work_units: int = ...,
+    ) -> int: ...
+
+
 class _Writer(Protocol):
     def write(self, data: bytes, /) -> int: ...
 
@@ -260,3 +327,23 @@ def open_volumes(
     cancellation: CancellationToken | None = ...,
     max_work_units: int = ...,
 ) -> Archive: ...
+
+
+def open_stream_bytes(
+    data: bytes,
+    *,
+    format: str | None = ...,
+    limits: Limits | None = ...,
+    cancellation: CancellationToken | None = ...,
+    max_work_units: int = ...,
+) -> CompressedStream: ...
+
+
+def open_stream_path(
+    path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+    *,
+    format: str | None = ...,
+    limits: Limits | None = ...,
+    cancellation: CancellationToken | None = ...,
+    max_work_units: int = ...,
+) -> CompressedStream: ...

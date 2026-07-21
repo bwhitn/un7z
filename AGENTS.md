@@ -4,8 +4,10 @@ These rules apply to the entire repository.
 
 ## Scope and architecture
 
-- This project is an unpack-only 7z reader. Do not add an archive writer,
-  editor, mutation surface, or compression API.
+- This project is an unpack-only 7z archive reader with explicitly separated
+  unpack-only readers for LZ4 frames, Zstandard frames, and Unix `compress`
+  `.Z` streams. `Archive` remains 7z-specific. Do not add an archive or stream
+  writer, editor, mutation surface, or compression API.
 - Keep byte parsing, validated archive models, coder-graph construction,
   decoders, volume access, filesystem path policy, the CLI, and future language
   bindings in separate layers.

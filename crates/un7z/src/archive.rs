@@ -1209,6 +1209,9 @@ fn map_encrypted_error(error: Error, encrypted: bool) -> Error {
         }
         Error::UnsupportedMethod { .. }
         | Error::UnsupportedFeature { .. }
+        | Error::StreamFormat { .. }
+        | Error::StreamChecksum { .. }
+        | Error::UnsupportedStreamFeature { .. }
         | Error::LimitExceeded { .. }
         | Error::MissingVolume { .. }
         | Error::PasswordRequired

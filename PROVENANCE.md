@@ -105,6 +105,28 @@ The complete vector retains its BSD-3-Clause OR MIT upstream provenance; the
 one-byte truncation and regression assertions are MIT OR Apache-2.0 project
 work.
 
+The 2026-07-21 standalone LZ4 and Zstandard stream layer is original checked
+Rust built from the official format documents pinned below and the public APIs
+of the already admitted `lz4_flex` 0.13.1 and `ruzstd` 0.8.1 decoders. The
+layout validators, frame table, limit accounting, checksum boundary, output
+API, fuzz target, Python adapter, and tests are MIT OR Apache-2.0. No LZ4 or
+Zstandard implementation source was copied into this repository. LZ4 header
+checksums use `twox-hash` 2.1.2; block/content decoding and checksums remain in
+`lz4_flex`. Zstandard content-checksum calculation is enabled through
+`ruzstd`'s `hash` feature and its existing `twox-hash` dependency.
+
+The safe Rust Unix `compress` decoder adapts the `.Z` header, grouped
+least-significant-bit-first code reader, variable-width transition,
+CLEAR-reset, prefix/suffix dictionary, and special next-code expansion
+semantics from NetBSD `usr.bin/compress/zopen.c` at commit
+`bd9f26305380f03b3821f55381448a82827d6749`. The source is BSD-3-Clause,
+Copyright (c) 1985, 1986, 1992, 1993 The Regents of the University of
+California; its exact notice is reproduced in
+`LICENSE-NETBSD-ZOPEN-BSD-3-CLAUSE`. Rust-owned storage, checked arithmetic,
+fallible allocation, output/work/cancellation controls, typed errors, and FFI
+integration are original MIT OR Apache-2.0 work. GPL `ncompress`, official
+7-Zip, and p7zip source were not inspected or used.
+
 The IA64, ARM Thumb, and RISC-V instruction layouts and bijective decoder
 semantics were independently expressed in checked Rust after inspecting the
 corresponding liblzma filter descriptions in XZ Utils commit
@@ -261,6 +283,7 @@ are offered under MIT OR Apache-2.0.
 | `crates/un7z/src/decode/codecs.rs`: optional 7-Zip Brotli header removal | `internal/brotli/reader.go:headerFrame`, `NewReader` | `dcfc72a0ee9f527c55521f44ffdf1c31b732e256` | Adapted only the private 16-byte frame recognition; all Brotli bitstream decoding is delegated to `brotli-decompressor` | BSD-3-Clause upstream notice; Rust adapter changes MIT OR Apache-2.0 |
 | `crates/un7z/src/decode/deflate64.rs`: bit reader, Huffman tables, block decoder, history copy | Apache Commons Compress `src/main/java/org/apache/commons/compress/compressors/deflate64/HuffmanDecoder.java` | `9499ba8ed3c6dce1275ac3d0471afa414b23daff` | Adapted the Deflate64 grammar and numeric tables into a one-shot safe Rust decoder; all input/range/arithmetic/output operations are checked, the 64 KiB resource is preflighted, allocation is fallible, and loops honor cancellation/work limits | Apache-2.0 source and notice; Rust changes MIT OR Apache-2.0 |
 | `crates/un7z/src/decode/phase5_filters.rs`: `decode_ia64`, `decode_arm_thumb`, `decode_riscv` | XZ Utils `src/liblzma/simple/{ia64,armthumb,riscv}.c` algorithm descriptions | `f3b5688159c60495f48db3942a36509671dfce89` | Instruction layouts and reversible address transforms independently expressed with checked slice access/conversions, explicit 32-bit wrapping address domains, and cancellation/work checkpoints; no XZ runtime code or library is shipped | Reference files 0BSD; original Rust expression MIT OR Apache-2.0 |
+| `crates/un7z/src/stream/unix_compress.rs`: `CodeReader`, `decode_lzw`, dictionary/width/CLEAR state | NetBSD `usr.bin/compress/zopen.c`: read-side `getcode`/`zread` behavior | `bd9f26305380f03b3821f55381448a82827d6749` | Adapted Unix `.Z` grouped code packing and LZW state into safe Rust with checked table access, pre-allocation dictionary accounting, bounded output, and cancellation/work checkpoints | NetBSD/Berkeley BSD-3-Clause notice; Rust changes MIT OR Apache-2.0 |
 
 ## Container primitive origin ledger
 
@@ -279,6 +302,8 @@ are offered under MIT OR Apache-2.0.
 | Additional-stream processor, verifier, and external metadata resolver | Original `crates/un7z/src/metadata.rs` and `archive.rs` orchestration over Phase 2's adapted serialized property layouts | Requirements-driven sequential decoding of validated AdditionalStreamsInfo folders, verification of every logical substream, and exact bounded application to file records; no external decoder or container implementation copied | MIT OR Apache-2.0 plus upstream notice for adapted layouts | Synthetic production-API external Name tests; exact/trailing-byte rejection; referenced and unreferenced packed/folder/substream CRC checks; AES password states; shared output/work/cancellation limits; crossed three-part memory volumes; and limits for decoded header/name bytes |
 | Staged external-folder resolver | Original staging and orchestration in `model.rs`, `validate.rs`, `parser.rs`, `metadata.rs`, and `archive.rs`, over the adapted `types.go:readUnpackInfo` flag/`DataIndex` grammar recorded above | Project hostile-input requirements plus black-box `7zz` 26.02 behavior; the pinned Go revision does not implement resolution | MIT OR Apache-2.0 plus the upstream BSD-3-Clause notice for adapted serialized grammar | Production extraction with one and two AdditionalStreamsInfo folder outputs; stock-oracle acceptance of both forms; external Name reuse; exact-consumption, prefix-truncation, index, pre-decode packed-range overlap, packed/folder/substream CRC, combined count/output-limit, and encrypted password-state regressions |
 | Sequential volume assembly | Original `crates/un7z/src/volume.rs` and archive integration | Project `VolumeProvider` requirements plus the pinned reference's observed `.001` naming behavior; no provider or concatenation code copied | MIT OR Apache-2.0 | Memory/path providers, total-byte and volume-count preflight, cancellation/work checks between reads, exact missing suffix, six-part fixture, five-part encrypted fixture, and cross-volume packed data |
+| Standalone LZ4/Zstandard layout and output session | Original `crates/un7z/src/stream/{mod,lz4,zstandard,cursor}.rs` | Official pinned LZ4/Zstandard frame documents listed below; decoder/checksum crates listed in `DEPENDENCIES.md`; no implementation source copied | MIT OR Apache-2.0; specification repositories BSD-2-Clause/BSD-3-Clause; decoder crates MIT | Generated current/legacy/concatenated/skippable/checksum frames, exhaustive small truncations, dictionary/window/frame/output/work/cancellation limits, fuzz target, and native CLI differentials |
+| Standalone Python stream adapter | Original `bindings/python/src/stream.rs`, stubs, and tests | Adapter over the stable `CompressedStream` API; no parsing or decoder logic duplicated | MIT OR Apache-2.0 | Magic/explicit opens, concrete info, path no-side-effect, bounded writer/callback output, exception identity, cancellation, and limit tests |
 | Safe path and symlink metadata policy | Original `crates/un7z/src/path.rs` and `model.rs` accessors | Project security requirements and platform path syntax; no extraction code or external implementation copied | MIT OR Apache-2.0 | Traversal/absolute/drive/UNC/device/NUL tests over UTF-16 and a generated `7zz -snl` symlink metadata oracle |
 
 ## Adapted source hashes
@@ -358,6 +383,11 @@ implementation source or runtime input.
 | XZ Utils `src/liblzma/simple/ia64.c` | `f3b5688159c60495f48db3942a36509671dfce89` | `049579b1428b44e7170bf6e1aee6e8eee953dc61ab4f1f551fdc3026b30271d7` | 0BSD reference only |
 | XZ Utils `src/liblzma/simple/armthumb.c` | `f3b5688159c60495f48db3942a36509671dfce89` | `a40d52404e38408d2c6cb7ababffc157c1faed09d9d1d09ece69792a607fce88` | 0BSD reference only |
 | XZ Utils `src/liblzma/simple/riscv.c` | `f3b5688159c60495f48db3942a36509671dfce89` | `5962ff339c83114e3fe403162ee5e2f8ed6d81f198c20de6d60240c1d9a2fe97` | 0BSD reference only |
+| LZ4 `doc/lz4_Frame_format.md` | `0774d05537f9762f838f7ab541b7765f1a729cb5` | `382fe98ea6770abc39070cfba1287fe299f4570ddfc75713a1a8aa5483e38b98` | Official format reference; repository BSD-2-Clause |
+| LZ4 `lib/LICENSE` | `0774d05537f9762f838f7ab541b7765f1a729cb5` | `8b58c446121a109ccf32edc094bba3010a3d85e4ee3702950db55e4d3e87736c` | BSD-2-Clause reference license |
+| Zstandard `doc/zstd_compression_format.md` | `5c7b7bad26808e6b40ac3b3d0075466e27738a9d` | `9ce5315c466d644fb41b54a7dcb707eb6e067bb5f36d79c0728a7ea2050cd8f7` | Official format reference; repository BSD-3-Clause |
+| Zstandard `LICENSE` | `5c7b7bad26808e6b40ac3b3d0075466e27738a9d` | `7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8` | BSD-3-Clause reference license |
+| NetBSD `usr.bin/compress/zopen.c` | `bd9f26305380f03b3821f55381448a82827d6749` | `2e1375092ef015bfbf423f88d656fb6b8c705e1a3ca267cf003c2ca630854c7f` | BSD-3-Clause adaptation source; notice reproduced in `LICENSE-NETBSD-ZOPEN-BSD-3-CLAUSE` |
 
 ## Decoder and filter origin ledger
 
@@ -384,6 +414,9 @@ support claims and exact fixtures are maintained separately in
 | Brotli | `internal/brotli/reader.go` plus Go Brotli dependency | Original bounded adapter over `brotli-decompressor` 5.0.3, with pinned-Go adaptation only for the private 16-byte 7-Zip prefix | Adapter MIT OR Apache-2.0 plus pinned BSD-3-Clause notice; dependency BSD-3-Clause OR MIT | Implemented and tested with private `brotli.7z` fixture and common-corpus byte/SHA baseline; stock `7zz` 26.02 cannot decode the private method ID |
 | LZ4 | `internal/lz4/reader.go` plus Go LZ4 dependency | Original bounded checked-frame adapter over `lz4_flex` 0.13.1 from `https://github.com/pseitz/lz4_flex` | Adapter MIT OR Apache-2.0; dependency MIT | Implemented and tested with private `lz4.7z` fixture and common-corpus byte/SHA baseline; stock `7zz` 26.02 cannot decode the private method ID |
 | Zstd | `internal/zstd/reader.go` plus Go compress dependency | Original frame-window-preflighting adapter over `ruzstd` 0.8.1 from `https://github.com/KillingSpark/zstd-rs` | Adapter MIT OR Apache-2.0; dependency MIT | Implemented and tested without dictionaries using private `zstd.7z` fixture and common-corpus byte/SHA baseline; 0.8.1 is pinned because later releases exceed Rust 1.85; stock `7zz` 26.02 cannot decode the private method ID |
+| Standalone LZ4 frame | Outside the 7z reference surface | Original bounded layout/session adapter over `lz4_flex` 0.13.1 using the pinned official frame document | Adapter MIT OR Apache-2.0; dependency MIT; document repository BSD-2-Clause | Standard/legacy/concatenated/skippable frames implemented; declared checksums enforced; external dictionaries typed unsupported |
+| Standalone Zstandard frame | Outside the 7z reference surface | Original bounded layout/session adapter over `ruzstd` 0.8.1 using the pinned official format document | Adapter MIT OR Apache-2.0; dependency MIT; document repository BSD-3-Clause | Standard concatenated/skippable frames implemented; content checksum and window enforced; external dictionaries typed unsupported |
+| Unix `compress` `.Z` | Outside the 7z reference surface | Checked safe-Rust adaptation of pinned NetBSD `zopen.c` read behavior | NetBSD/Berkeley BSD-3-Clause plus MIT OR Apache-2.0 Rust changes | 9-16 bit block/non-block LZW implemented with width/CLEAR/dictionary/output/work/cancellation tests and native-tool differential evidence; format has no checksum |
 | Deflate64 | Not in pinned Go reference | Checked in-tree `decode/deflate64.rs` adaptation from the pinned Apache Commons Compress file above | Apache-2.0 source; Rust changes MIT OR Apache-2.0 | Implemented and tested with stored/dynamic/long-distance streams, every-prefix truncation, corruption, output/dictionary/work controls, and generated `7zz` differential archives |
 | IA64 | Not in pinned Go reference | Original checked Rust expression in `decode/phase5_filters.rs` using the pinned XZ algorithm description | Rust MIT OR Apache-2.0; reference 0BSD | Implemented and tested with transforming instruction bundles, corruption, tail safety, and `7zz` differential evidence |
 | ARM Thumb | Not in pinned Go reference | Original checked Rust expression in `decode/phase5_filters.rs` using the pinned XZ algorithm description | Rust MIT OR Apache-2.0; reference 0BSD | Implemented and tested with transforming branch instructions, nonzero address behavior, corruption, and `7zz` differential evidence |
@@ -395,7 +428,7 @@ support claims and exact fixtures are maintained separately in
 
 | Component | Exact origin/revision | License | Use and adaptation status |
 | --- | --- | --- | --- |
-| `bindings/python/src`, Python package/stubs/tests, workflow, and documentation | Original repository work, 2026-07-18 | MIT OR Apache-2.0 | FFI adapter only; no upstream archive algorithm or source adapted |
+| `bindings/python/src`, Python package/stubs/tests, workflow, and documentation | Original repository work, 2026-07-18 through 2026-07-21 | MIT OR Apache-2.0 | FFI adapter only; no upstream archive/stream algorithm or source adapted |
 | PyO3 family | crates.io `pyo3`, `pyo3-ffi`, `pyo3-build-config`, `pyo3-macros`, and `pyo3-macros-backend` 0.29.0; exact checksums in `bindings/python/Cargo.lock`; `https://github.com/PyO3/pyo3` | MIT OR Apache-2.0 | CPython ABI, owned handles, module/classes, exceptions, detach/attach, and limited-API build; dependency source not copied |
 | Python host API | Python 3.9+ stable ABI as exposed by the caller's interpreter; `https://docs.python.org/3/c-api/stable.html` | Python Software Foundation License for CPython | External host platform only; no interpreter source or binary copied or bundled |
 | maturin | PyPI/build-backend release 1.13.3, exactly pinned in `pyproject.toml`; `https://github.com/PyO3/maturin` | MIT OR Apache-2.0 | Development/build tool only; not a wheel runtime dependency and no source copied |

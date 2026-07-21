@@ -20,6 +20,20 @@ The supported surface is:
 - concrete error, limit, cancellation/work, path-policy, resource-accounting,
   and volume-provider types exported at the crate root.
 
+The 2026-07-21 additive standalone-stream surface is deliberately not folded
+into `Archive`:
+
+- `CompressedStream::open_path`, `CompressedStream::open_bytes`, and their
+  explicit-format `*_as` forms;
+- concrete `StreamFormat`, `StreamInfo`, `StreamInfoKind`, and format-specific
+  information records; and
+- `CompressedStream::extract_to`, `decompress`, and `verify`, which return
+  success only after decoder finalization and every declared frame checksum.
+
+`CompressedStream` represents one unnamed byte stream. It has no member list,
+raw path, archive metadata, password, or volume-provider API and never derives
+an output path. Unknown decoded size remains `None`.
+
 The `unstable-internals` feature is a repository test/fuzz hook. Its hidden raw
 parser, validated wire model, folder graph, and envelope exports are not
 covered by compatibility promises and must not be used by applications. It is
@@ -41,6 +55,11 @@ Temporary decoder dictionary/window state is constrained by
 `max_dictionary_bytes`; packed input and decoded output are constrained by the
 input/output limits documented in `THREAT_MODEL.md`.
 
+A `CompressedStream` owns its complete compressed input and a small validated
+frame table. `retained_input_bytes` reports the logical input bytes; decoder
+windows and output exist only during an extraction operation and are bounded
+by the retained `Limits`.
+
 ## Integrity and output
 
 `extract_entry`, `extract_entry_to`, `verify`, and successful sink
@@ -53,6 +72,12 @@ only after success.
 Raw names are never destinations. Applications must call the path validator
 and separately define collision, link, platform-name, and race policy. The
 core provides no automatic filesystem extraction.
+
+Standalone LZ4/Zstandard checksums have the same delayed-trust rule: a writer
+may observe bytes before a trailing checksum is available, and only a
+successful operation verifies the frame's declared checksum set. Unix `.Z`
+contains no checksum or decoded-size declaration, so successful EOF is a
+decoder-completion result rather than an integrity guarantee.
 
 ## MSRV and platforms
 
@@ -78,6 +103,18 @@ The Python surface maps the concrete Rust operations directly:
 - `Archive.extract_entry_to(index, writer, *, ...)`;
 - `Archive.extract_entries_to(sink, *, cancellation, max_work_units)`; and
 - `Archive.stream_entry(index, callback, *, ...)`.
+
+Standalone streams use separate FFI-safe names:
+
+- `open_stream_bytes(data, *, format, limits, cancellation, max_work_units)`;
+- `open_stream_path(path, *, format, limits, cancellation, max_work_units)`;
+- immutable `CompressedStream.info`, `.limits`, and
+  `.retained_input_bytes`; and
+- `CompressedStream.extract_to(writer)`, `.stream(callback)`, and `.verify()`.
+
+The optional format string accepts `lz4`, `zstd`/`zstandard`, and
+`z`/`compress`/`unix-compress`; omission performs magic-based detection.
+There is no Python whole-output return method or automatic filesystem output.
 
 `Entry` is an owned metadata snapshot. It preserves raw UTF-16 code units as
 `list[int] | None`, lossy display text separately, every optional size/CRC/time/

@@ -8,7 +8,8 @@ Rust API but decodes only the methods explicitly supported in
 folder definitions and metadata, and reads bounded
 sequential volumes. Passwords and KDF output are per archive and zeroized. The
 member reader holds one completely decoded folder in memory and reports that
-retained allocation. Do
+retained allocation. A separate bounded `CompressedStream` surface accepts
+LZ4, Zstandard, and Unix `.Z` inputs without inventing archive members. Do
 not use this project as a security boundary or infer compatibility for an
 untested method/property combination.
 
@@ -23,7 +24,7 @@ archive contents when a synthetic reproducer is possible.
 
 - Malformed input returns a typed error and does not panic.
 - The core crate forbids unsafe code.
-- Archive-processing paths contain no `unwrap`, `expect`, `panic!`, unchecked
+- Compressed-input processing paths contain no `unwrap`, `expect`, `panic!`, unchecked
   input-derived indexing, unchecked narrowing, or unchecked offset arithmetic.
 - A declared property is parsed in an exact bounded sub-reader.
 - Allocation and expensive work follow their relevant limit checks.
@@ -31,7 +32,9 @@ archive contents when a synthetic reproducer is possible.
 - All stream counts, indices, bindings, roots, cycles, totals, CRC arrays, and
   ranges are validated before decoder construction.
 - Missing CRC and unknown unpacked size use `Option`; zero is not a sentinel.
-- Output helpers verify member CRC before success; streams require `finish()`.
+- Archive output helpers verify member CRC before success; member streams
+  require `finish()`. Standalone helpers verify every checksum declared by
+  their frame format before success.
 - Unsafe paths never change file-to-stream mapping.
 - Password and key material is per archive, redacted, and zeroized; no global
   secret cache is permitted.
@@ -54,6 +57,11 @@ strings.
 observed before `MemberReader::finish`, `extract_entry_to` success, or
 `EntrySink::finish_entry` are unverified and must not be committed as trusted
 output.
+
+Standalone format-specific payloads use `StreamFormat`, `StreamChecksum`, and
+`UnsupportedStreamFeature` variants while retaining the stable `Format`,
+`Checksum`, and `UnsupportedFeature` categories. They preserve the format and
+zero-based frame index or feature name for FFI mapping.
 
 ## Unsafe-code exception process
 
@@ -88,6 +96,13 @@ the selected decoded folder output must contain exactly the declared folder
 records. A `MemberReader`
 caller can observe bytes before integrity is final and therefore must call
 `finish()`; dropping it never implies success.
+
+LZ4 descriptor checksums are validated while opening. LZ4 block/content and
+Zstandard content checksums are finalized during extraction, and a standalone
+call returns success only after all applicable frames finish. Frames without a
+declared checksum cannot acquire an invented one. Unix `.Z` has no embedded
+checksum or decoded-size declaration; valid EOF is therefore not evidence
+against clean-boundary truncation or intentional substitution.
 
 Python `extract_entry_to`, `stream_entry`, and batch `extract_entries_to` use
 the same high-level finalizing paths. A Python writer or callback can observe
@@ -132,6 +147,11 @@ Memory already allocated by Python and memory retained by caller writers or
 callbacks cannot be bounded or accounted by Rust; callers must bound their own
 provider and sink behavior.
 
+`open_stream_bytes` applies the same pre-copy input check. Standalone parsing
+and decoding run detached; only bounded writer/callback delivery reattaches.
+Callback exceptions and callback-requested cancellation retain the same
+identity and classification as archive streaming.
+
 Passwords passed as Python strings remain in Python-managed memory. Rust cannot
 erase that caller object. Its Rust-owned buffer is moved immediately into
 zeroizing storage, cleared after core construction, and the core retains only
@@ -170,6 +190,14 @@ unknown final substream is decoded only where the codec supports EOS and with
 an entry-sized remaining allowance; an unknown non-final substream is rejected
 before decode. This is configured bounded memory, not constant-memory
 streaming.
+
+`CompressedStream` additionally checks `max_stream_frames` before growing its
+layout table. It preflights declared aggregate output, LZ4 working blocks,
+Zstandard windows, and the complete Unix `.Z` prefix/suffix/expansion storage
+before decoder construction or allocation. Unknown output sizes are bounded
+during every write. Input reads, frame boundaries, LZW codes, dictionary
+walks, and decoder output loops share the caller's work budget and cancellation
+token.
 
 An open archive exposes checked `ArchiveResources` categories for its logical
 input, validated metadata payload, per-archive secret buffer, and total. An
@@ -228,8 +256,10 @@ commit.
 
 No separate valid or malformed corpus is currently available. Security
 regressions therefore use deterministic hostile constructors, CRC-correct
-semantic mutation, exhaustive truncation/limit cases, and the six
-coverage-guided fuzz targets. Temporary `7zz` output supplies positive
+semantic mutation, exhaustive truncation/limit cases, and seven
+coverage-guided targets: six archive/path targets plus the standalone-stream
+target.
+Temporary `7zz` output supplies positive
 differential evidence only and is deleted after each opt-in test.
 
 The one retained oracle-authored compressed payload is a 49-byte test-only PPMd

@@ -18,7 +18,7 @@ impl PyLimits {
     #[new]
     #[pyo3(signature = (*, max_header_bytes=None, max_files=None, max_folders=None,
         max_coders_per_folder=None, max_total_coders=None, max_streams_per_folder=None,
-        max_total_streams=None, max_substreams=None, max_header_properties=None,
+        max_total_streams=None, max_stream_frames=None, max_substreams=None, max_header_properties=None,
         max_coder_property_bytes=None, max_name_bytes_per_entry=None,
         max_total_name_bytes=None, max_dictionary_bytes=None, max_entry_output_bytes=None,
         max_total_output_bytes=None, max_volumes=None, max_total_input_bytes=None,
@@ -32,6 +32,7 @@ impl PyLimits {
         max_total_coders: Option<u64>,
         max_streams_per_folder: Option<u64>,
         max_total_streams: Option<u64>,
+        max_stream_frames: Option<u64>,
         max_substreams: Option<u64>,
         max_header_properties: Option<u64>,
         max_coder_property_bytes: Option<u64>,
@@ -67,6 +68,9 @@ impl PyLimits {
         }
         if let Some(value) = max_total_streams {
             builder = builder.max_total_streams(value);
+        }
+        if let Some(value) = max_stream_frames {
+            builder = builder.max_stream_frames(value);
         }
         if let Some(value) = max_substreams {
             builder = builder.max_substreams(value);
@@ -145,6 +149,11 @@ impl PyLimits {
     #[getter]
     const fn max_total_streams(&self) -> u64 {
         self.value.max_total_streams()
+    }
+
+    #[getter]
+    const fn max_stream_frames(&self) -> u64 {
+        self.value.max_stream_frames()
     }
 
     #[getter]

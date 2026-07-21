@@ -10,6 +10,7 @@ pub struct Limits {
     max_total_coders: u64,
     max_streams_per_folder: u64,
     max_total_streams: u64,
+    max_stream_frames: u64,
     max_substreams: u64,
     max_header_properties: u64,
     max_coder_property_bytes: u64,
@@ -35,6 +36,7 @@ impl Limits {
         max_total_coders: 100_000,
         max_streams_per_folder: 1024,
         max_total_streams: 200_000,
+        max_stream_frames: 100_000,
         max_substreams: 100_000,
         max_header_properties: 100_000,
         max_coder_property_bytes: 1024 * 1024,
@@ -98,6 +100,12 @@ impl Limits {
     #[must_use]
     pub const fn max_total_streams(self) -> u64 {
         self.max_total_streams
+    }
+
+    /// Maximum data and skippable frames in one compressed stream.
+    #[must_use]
+    pub const fn max_stream_frames(self) -> u64 {
+        self.max_stream_frames
     }
 
     /// Maximum substreams across parsed stream sections.
@@ -241,6 +249,13 @@ impl LimitsBuilder {
         self
     }
 
+    /// Overrides the compressed-stream frame-count limit.
+    #[must_use]
+    pub const fn max_stream_frames(mut self, value: u64) -> Self {
+        self.limits.max_stream_frames = value;
+        self
+    }
+
     /// Overrides the total substream limit.
     #[must_use]
     pub const fn max_substreams(mut self, value: u64) -> Self {
@@ -359,6 +374,7 @@ mod tests {
         assert_eq!(limits.max_total_coders(), 100_000);
         assert_eq!(limits.max_streams_per_folder(), 1024);
         assert_eq!(limits.max_total_streams(), 200_000);
+        assert_eq!(limits.max_stream_frames(), 100_000);
         assert_eq!(limits.max_substreams(), 100_000);
         assert_eq!(limits.max_header_properties(), 100_000);
         assert_eq!(limits.max_coder_property_bytes(), 1024 * 1024);
@@ -384,19 +400,20 @@ mod tests {
             .max_total_coders(5)
             .max_streams_per_folder(6)
             .max_total_streams(7)
-            .max_substreams(8)
-            .max_header_properties(9)
-            .max_coder_property_bytes(10)
-            .max_name_bytes_per_entry(11)
-            .max_total_name_bytes(12)
-            .max_dictionary_bytes(13)
-            .max_entry_output_bytes(14)
-            .max_total_output_bytes(15)
-            .max_volumes(16)
-            .max_total_input_bytes(17)
-            .max_kdf_power(18)
-            .max_recursion_depth(19)
-            .sfx_scan_limit(20)
+            .max_stream_frames(8)
+            .max_substreams(9)
+            .max_header_properties(10)
+            .max_coder_property_bytes(11)
+            .max_name_bytes_per_entry(12)
+            .max_total_name_bytes(13)
+            .max_dictionary_bytes(14)
+            .max_entry_output_bytes(15)
+            .max_total_output_bytes(16)
+            .max_volumes(17)
+            .max_total_input_bytes(18)
+            .max_kdf_power(19)
+            .max_recursion_depth(20)
+            .sfx_scan_limit(21)
             .build();
 
         assert_eq!(limits.max_header_bytes(), 1);
@@ -406,18 +423,19 @@ mod tests {
         assert_eq!(limits.max_total_coders(), 5);
         assert_eq!(limits.max_streams_per_folder(), 6);
         assert_eq!(limits.max_total_streams(), 7);
-        assert_eq!(limits.max_substreams(), 8);
-        assert_eq!(limits.max_header_properties(), 9);
-        assert_eq!(limits.max_coder_property_bytes(), 10);
-        assert_eq!(limits.max_name_bytes_per_entry(), 11);
-        assert_eq!(limits.max_total_name_bytes(), 12);
-        assert_eq!(limits.max_dictionary_bytes(), 13);
-        assert_eq!(limits.max_entry_output_bytes(), 14);
-        assert_eq!(limits.max_total_output_bytes(), 15);
-        assert_eq!(limits.max_volumes(), 16);
-        assert_eq!(limits.max_total_input_bytes(), 17);
-        assert_eq!(limits.max_kdf_power(), 18);
-        assert_eq!(limits.max_recursion_depth(), 19);
-        assert_eq!(limits.sfx_scan_limit(), 20);
+        assert_eq!(limits.max_stream_frames(), 8);
+        assert_eq!(limits.max_substreams(), 9);
+        assert_eq!(limits.max_header_properties(), 10);
+        assert_eq!(limits.max_coder_property_bytes(), 11);
+        assert_eq!(limits.max_name_bytes_per_entry(), 12);
+        assert_eq!(limits.max_total_name_bytes(), 13);
+        assert_eq!(limits.max_dictionary_bytes(), 14);
+        assert_eq!(limits.max_entry_output_bytes(), 15);
+        assert_eq!(limits.max_total_output_bytes(), 16);
+        assert_eq!(limits.max_volumes(), 17);
+        assert_eq!(limits.max_total_input_bytes(), 18);
+        assert_eq!(limits.max_kdf_power(), 19);
+        assert_eq!(limits.max_recursion_depth(), 20);
+        assert_eq!(limits.sfx_scan_limit(), 21);
     }
 }

@@ -35,6 +35,22 @@ budget and cancellation token.
 The Go-reference column describes the pinned behavioral reference after source
 and bundled-test inspection. It does not imply Rust support.
 
+## Standalone compressed streams
+
+These readers are separate from the 7z `Archive` model and do not broaden any
+7z container claim. They expose one unnamed output through `CompressedStream`
+and the Python `open_stream_*` functions; the CLI remains unchanged.
+
+| Format | Supported boundary | Positive and hostile evidence | Known limitations |
+| --- | --- | --- | --- |
+| LZ4 frame (`.lz4`) | Standard version-1 frames, legacy frames, concatenated data frames, skippable frames, linked/independent blocks, optional content size, block checksums, and content checksums | Generated standard checked frames with exact output; generated legacy and concatenated/skippable stream; every prefix of a checked frame; payload/checksum corruption; frame/dictionary/output/work/cancellation limits; exact 1,000,000-byte differential against LZ4 CLI 1.10.0 | Frames declaring an external dictionary are listable but extraction returns typed `UnsupportedStreamFeature`; no magicless raw-block file API |
+| Zstandard frame (`.zst`, `.zstd`) | Standard magic-bearing frames, concatenated data frames, skippable frames, raw/RLE/compressed blocks through `ruzstd`, optional content size, content checksum, and bounded windows | Generated raw checked and concatenated/skippable frames with exact output; every checked-frame prefix; checksum corruption; reserved/block/window/frame/output limits; exact 1,000,000-byte differential against Zstandard CLI 1.5.7 | Nonzero dictionary IDs are listable but extraction returns typed `UnsupportedStreamFeature`; magicless frames are not detected or accepted |
+| Unix `compress` (`.Z`) | One 9- through 16-bit variable-width LZW stream, block and non-block modes, code-width transitions, dictionary saturation, and CLEAR resets | Fixed macOS 26.5.1 `/usr/bin/compress` exact fixture; generated width-transition/CLEAR and non-block streams; exact 1,000,000-byte and 2-MiB random native-tool differentials; reserved-width/dictionary/output/work/cancellation regressions | The format declares neither output size nor checksum. A truncation after a complete code may be indistinguishable from a shorter valid stream, so success is decoder completion, not an integrity guarantee |
+
+All three retain unknown decoded size as `None`, enforce it during decoding,
+and never infer an output filename. Python output uses bounded writer/callback
+chunks and has no default whole-output return API.
+
 ## Methods and filters
 
 In addition to the named external fixtures below, the corpus-free

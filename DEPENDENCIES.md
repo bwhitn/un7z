@@ -15,8 +15,9 @@ following exact direct runtime dependencies; default features are disabled and
 | `miniz_oxide` | 0.8.9 | MIT OR Zlib OR Apache-2.0 | `with-alloc` | Raw Deflate decoder; `https://github.com/Frommi/miniz_oxide` |
 | `bzip2-rs` | 0.1.2 | MIT OR Apache-2.0 | `rustc_1_37` | Safe Rust BZip2 decoder; `https://github.com/paolobarbolini/bzip2-rs` |
 | `brotli-decompressor` | 5.0.3 | BSD-3-Clause OR MIT | `std` | Brotli decoder; `https://github.com/dropbox/rust-brotli-decompressor` |
-| `lz4_flex` | 0.13.1 | MIT | `checked-decode`, `frame`, `safe-decode`, `safe-encode` | Safe checked LZ4-frame decoder; `https://github.com/pseitz/lz4_flex` |
-| `ruzstd` | 0.8.1 | MIT | `std` | Zstandard frame decoder; `https://github.com/KillingSpark/zstd-rs`; 0.8.2 uses APIs unavailable on Rust 1.85 and 0.8.3 requires Rust 1.87, so both exceed this project's tested MSRV |
+| `lz4_flex` | 0.13.1 | MIT | `checked-decode`, `frame`, `safe-decode`, `safe-encode` | Safe checked LZ4-frame decoder for 7z coder payloads and standalone streams; `https://github.com/pseitz/lz4_flex` |
+| `ruzstd` | 0.8.1 | MIT | `hash`, `std` | Zstandard frame decoder with content-checksum calculation for 7z coder payloads and standalone streams; `https://github.com/KillingSpark/zstd-rs`; 0.8.2 uses APIs unavailable on Rust 1.85 and 0.8.3 requires Rust 1.87, so both exceed this project's tested MSRV |
+| `twox-hash` | 2.1.2 | MIT | `xxhash32` (plus `xxhash64` unified through `ruzstd/hash`) | LZ4 descriptor checksum validation and transitive LZ4/Zstandard frame checksum support; `https://github.com/shepmaster/twox-hash` |
 
 The complete normal/build transitive graph at this revision is:
 
@@ -27,7 +28,6 @@ The complete normal/build transitive graph at this revision is:
 | `cpubits`, `cpufeatures`, `cfg-if`, `typenum` | 0.1.1, 0.3.0, 1.0.4, 1.20.1 | MIT OR Apache-2.0 |
 | `alloc-no-stdlib`, `alloc-stdlib` | 2.0.4, 0.2.4 | BSD-3-Clause |
 | `crc32fast`, `tinyvec` | 1.5.0, 1.12.0 | MIT OR Apache-2.0; Zlib OR Apache-2.0 OR MIT |
-| `twox-hash` | 2.1.2 | MIT |
 | `adler2` | 2.0.1 | MIT selected from 0BSD OR MIT OR Apache-2.0 |
 
 No decoder dependency uses FFI or links a native library. The core crate still
@@ -40,8 +40,11 @@ output accounting, cancellation/work checkpoints, a panic boundary, and a
 method-specific allocation preflight. BZip2 charges five times the advertised
 block size, Brotli charges 32 MiB, linked LZ4 charges 24 MiB plus 64 KiB, raw
 Deflate charges 32 KiB, and Zstandard charges its parsed frame-window size
-before constructing the decoder. Dictionary-bearing Zstandard frames are
-rejected as unsupported.
+before constructing the decoder. Standalone LZ4 conservatively charges three
+maximum blocks plus 64 KiB history, standalone Zstandard charges the parsed
+window, and Unix `.Z` charges complete prefix/suffix/expansion tables before
+allocation. Dictionary-bearing LZ4 and Zstandard frames are listable but
+rejected as typed unsupported during extraction.
 
 Phase 5 adds no runtime dependency. The in-tree Deflate64 decoder charges its
 fixed 64 KiB history requirement during model validation and again at decoder
@@ -79,8 +82,8 @@ adds permission, is recorded as an exact-version build-only cargo-deny
 exception, and is not linked into the wheel. The binding's independently
 resolved core graph is captured in `bindings/python/Cargo.lock`; it remains
 subject to the same decoder admissions and runtime allowlist. That independent
-resolution selects `twox-hash` 2.1.3 (MIT) rather than the root lockfile's
-2.1.2; no duplicate version occurs within either artifact graph.
+resolution selects the same exact `twox-hash` 2.1.2 (MIT) as the root
+lockfile; no duplicate version occurs within either artifact graph.
 
 PyO3 and `pyo3-ffi` contain the reviewed unsafe/FFI implementation needed to
 call CPython. The binding crate itself has `unsafe_code = "forbid"`, and the
@@ -145,6 +148,13 @@ changed; only the direct `ruzstd` version and checksum changed in each lockfile.
 The same three cargo-deny 0.20.2 graphs reported `advisories ok, bans ok,
 licenses ok, sources ok` on 2026-07-21 after the PPMd, batch-adapter, Brotli,
 and wheel-matrix changes; no manifest or lockfile changed in that work.
+The standalone-stream work later that day made the already resolved MIT
+`twox-hash` 2.1.2 package a direct core dependency for LZ4 header checksums and
+enabled `ruzstd`'s existing `hash` feature for Zstandard content checksums. It
+added no package to the resolved runtime graph. Unix `.Z` is in-tree and adds
+no dependency. After that change, cargo-deny 0.20.2 reported `advisories ok,
+bans ok, licenses ok, sources ok` for the root runtime workspace, separately
+locked fuzz package, and separately locked Python binding graph.
 `cargo-deny`, cargo-fuzz, cargo-llvm-cov, Miri, Rust toolchains, GitHub Actions,
 and `7zz` are development/test tools, not runtime dependencies. The local
 coverage/fuzz audit used cargo-llvm-cov 0.8.7 and cargo-fuzz 0.13.2 installed
@@ -219,6 +229,7 @@ embedded or generated-code licensing facts.
 | Brotli | safe permissive decoder | `brotli-decompressor` 5.0.3 admitted with unsafe feature disabled |
 | LZ4 | safe permissive decoder | `lz4_flex` 0.13.1 admitted with checked/safe frame features |
 | Zstd | safe permissive decoder | `ruzstd` 0.8.1 admitted with frame-window preflight and dictionaries rejected |
+| Standalone Unix `.Z` | safe, limit-aware permissive implementation | In-tree safe Rust adaptation admitted; exact NetBSD BSD-3-Clause provenance and notice in `PROVENANCE.md` and `LICENSE-NETBSD-ZOPEN-BSD-3-CLAUSE` |
 | Python FFI | isolated adapter over the stable core | PyO3 0.29.0 admitted in `bindings/python`; no Python dependency enters the core workspace |
 
 ## Development-only 7zz rule

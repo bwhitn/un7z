@@ -82,6 +82,15 @@ limits and finite work budgets exercise exact sequential discovery,
 cross-boundary parsing/decoding, aggregate allocation checks, and missing/limit
 termination through the public API.
 
+`fuzz/fuzz_targets/stream_formats.rs` sends bounded arbitrary bytes through
+auto-detection and explicit LZ4, Zstandard, and Unix `.Z` opens, then verifies
+any accepted layout. Every input also creates valid raw-block LZ4 and
+Zstandard frames whose exact output is asserted, plus a `.Z` header around
+arbitrary code bytes. Reduced frame/input/dictionary/output/work limits keep
+the structural scanners and decoder loops bounded while exercising checksum,
+width-transition, frame-count, and cancellation checkpoints through the stable
+`CompressedStream` API.
+
 Normal tests complement fuzzing with exhaustive decoding of every one- and
 two-byte 7z integer encoding, all truncations of the nine-byte form, all split
 points of the standard CRC vector, all byte-prefix truncations of valid outer
@@ -137,6 +146,7 @@ cargo +nightly fuzz run next_header -- -runs=10000
 cargo +nightly fuzz run validated_graph -- -runs=10000
 cargo +nightly fuzz run decoding -- -runs=10000
 cargo +nightly fuzz run volumes -- -runs=10000
+cargo +nightly fuzz run stream_formats -- -runs=10000
 ```
 
 The fuzz package enables `un7z/unstable-internals` because three structural
@@ -150,10 +160,10 @@ cargo test --manifest-path fuzz/Cargo.toml --locked
 cargo deny --manifest-path fuzz/Cargo.toml check
 ```
 
-The standalone integration test enumerates all 21 positive profiles and all
+The standalone integration test enumerates all 21 positive archive profiles and all
 eight mutation classes. It is a deterministic generator invariant check, not a
 replacement for libFuzzer mutation or oracle differential tests. The fuzz-smoke
-CI job runs this invariant test before launching the six targets.
+CI job runs this invariant test before launching the seven targets.
 
 Generated corpus and crash artifacts are ignored. Minimized, non-sensitive
 regressions move into normal unit/integration tests with documented provenance.
@@ -172,6 +182,7 @@ constructs CRC-correct Copy and selected-method wrappers from every input.
 | Decoder dispatch and loops | 3+ | Active in `decoding`: public dispatch, encoded headers, output/dictionary/work bounds, cancellation, CRCs, no stalls |
 | Volume discovery/logical reads | 2/4 | Active in `volumes`: exact sequential requests, count/byte limits, missing parts, cross-boundary ranges |
 | Path validation | 1 | No panic and stable safety classification |
+| Standalone compressed streams | Additive | Active: LZ4/Zstandard frame ranges and checksums; Unix `.Z` code/dictionary state; all shared limits |
 
 Fuzz targets invoke the same production validation and limits as public APIs;
 they do not bypass CRC or invent sizes. Future method-specific targets may
@@ -356,3 +367,13 @@ could not start because this host has stable Rust only and rejects its nightly
 `-Zsanitizer` option; Miri is likewise not installed. This result is therefore
 only a harness/no-panic smoke, while nightly ASan fuzzing and Miri remain CI
 gates.
+
+Later on 2026-07-21, the new `stream_formats` harness completed 10,000 finite
+seedless executions through auto-detection, all three explicit formats, and
+the generated exact-output LZ4/Zstandard paths. Its first empty-seed run found
+an invalid harness fixture: a zero-length LZ4 uncompressed block had been
+emitted where the format requires the end marker. The generator was corrected
+to omit that block, and the full rerun completed without a decoder failure.
+This host again lacked nightly cargo-fuzz, sanitizer hooks, and coverage
+instrumentation, so the result is a finite invariant/no-panic smoke rather
+than ASan evidence; the configured nightly CI run remains authoritative.

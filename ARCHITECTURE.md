@@ -1,6 +1,7 @@
 # Architecture
 
-Status: Phase 7 Python binding over the stable Rust API, 2026-07-18. The
+Status: Phase 7 Python binding plus separate standalone stream readers,
+2026-07-21. The
 bounded byte parser, borrowed raw grammar, separate graph validator, semantic
 model validator, owned metadata model, arbitrary-graph executor, Go-parity
 decoders,
@@ -34,6 +35,12 @@ VolumeProvider
     -> member reader / caller-provided sink
 
 Raw UTF-16 path metadata -----------------> explicit safe-path validator
+
+Owned bytes/path
+    -> standalone magic or explicit format
+    -> bounded LZ4/Zstandard frame table or Unix `.Z` header
+    -> format decoder (limits, work, cancellation, declared checksums)
+    -> caller-provided writer
 ```
 
 No layer may make a lower layer's unvalidated representation public.
@@ -182,6 +189,37 @@ only after that member CRC succeeds, and only after the containing folder CRC
 has already succeeded. Random member access may re-decode from the folder
 start.
 
+### Standalone compressed streams
+
+`stream/mod.rs` owns the public `CompressedStream` session, common operation
+control, output limits, bounded decoder input, and format detection.
+`stream/cursor.rs` is the checked structural cursor.
+`stream/lz4.rs`, `stream/zstandard.rs`, and `stream/unix_compress.rs` own their
+format-specific validated layouts and decoding boundary. These modules do not
+construct `Archive`, `FileEntry`, folders, graphs, paths, volumes, or password
+state.
+
+LZ4 and Zstandard scan the complete bounded input into a fallibly grown frame
+table before extraction. Data plus skippable records count against
+`max_stream_frames`; declared content/window/block sizes and all ranges are
+checked before decoder construction. Exact data-frame slices prevent a decoder
+from consuming a following frame. Declared header/block/content checksums are
+not optionalized away. A dictionary ID is preserved in aggregate info but
+requires a future explicit dictionary-provider contract, so extraction returns
+typed unsupported.
+
+Unix `.Z` has one header and no frame table. Its full prefix, suffix, and
+expansion storage is calculated from the 9- through 16-bit header and checked
+against the dictionary limit before fallible allocation. Width transitions,
+CLEAR resets, code groups, prefix chains, input, output, work, and cancellation
+are checked inside the decoder. The format has no output-size or checksum field
+and the model keeps that absence explicit.
+
+`extract_to` is the default output surface and never selects a path. The
+convenience Rust-only `decompress` uses a fallibly growing bounded vector.
+Python exposes only writer/callback output. The CLI intentionally remains
+7z-specific.
+
 ### Volumes
 
 `VolumeProvider` decouples logical volume requests from paths, memory buffers,
@@ -238,6 +276,10 @@ and fuzzers and is off by default. `Archive`, `FileEntry`, `ArchiveResources`,
 `MemberReader`, `EntrySink`, limits/errors, path validators, and volume traits
 form the supported root surface documented in `API.md`.
 
+The additive standalone root surface consists of `CompressedStream`,
+`StreamFormat`, concrete stream-info records, and verified extraction totals.
+It avoids generic decoder or borrowed frame types so it remains FFI-mappable.
+
 `ArchiveResources` accounts owned logical input, validated-model payload, and
 zeroizing password storage. An active `MemberReader` separately reports the
 complete folder output it retains. Dictionary/window allocations and decoder
@@ -255,6 +297,13 @@ distribution is `un7z`; maturin installs the ABI3 native extension as
 `Archive`. Python metadata objects are owned `FileEntry` snapshots, including
 exact UTF-16 units and optional values. The binding exposes no raw parser,
 validated wire-model, or coder-graph type and cannot derive a filesystem path.
+
+`open_stream_path` and `open_stream_bytes` construct the separate core
+`CompressedStream`, optionally from one of the stable string aliases documented
+in `API.md`. Immutable `StreamInfo` exposes only concrete optional fields.
+`CompressedStream.extract_to` and `.stream` reuse the bounded Python sink
+adapter while Rust decoding stays detached; `.verify` discards output. No
+whole-output Python return or inferred output filename is provided.
 
 Every archive-processing or caller-invoking Python operation has an explicit
 unwind guard; trivial values and generated class-field access remain behind

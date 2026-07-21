@@ -30,6 +30,53 @@ right to redistribute each binary fixture.
 The pinned checkout's own `go test ./...` suite passed with Go 1.26.5 on macOS;
 this establishes the inspected reference baseline but is not Rust evidence.
 
+## Standalone compressed-stream evidence
+
+No standalone external corpus is committed. Normal tests generate LZ4 and
+Zstandard raw frames in process and embed one 26-byte Unix `.Z` fixture over
+the project-authored bytes `hello unix compress\n`. macOS 26.5.1
+`/usr/bin/compress` produced that fixture; the executable SHA-256 was
+`bf8cb1cefedfbf86fbb38dd42278fcad8fe020f3b8989897f1a0b2187aabdda5`,
+the compressed SHA-256 is
+`b4bce679446fedb329fcb3cf671b7e1a99e838e834097f260ba65d2a1615ea1e`,
+and the decoded SHA-256 is
+`d4d893bf9ca2a6efb601cc7fcfb2d749ab74100af5894de8834043589c7acea4`.
+The fixture is data from a black-box native tool, not imported source or an
+implementation dependency.
+
+On 2026-07-21 a disposable differential directory used this deterministic
+1,000,000-byte input:
+
+```text
+awk 'BEGIN { for (i = 1; i <= 20000; i++) printf "line-%06d-abcdefghijklmnopqrstuvwxyz-0123456789\n", i }' > expected.txt
+lz4 -f expected.txt expected.lz4
+zstd -f --check expected.txt -o expected.zst
+compress -c expected.txt > fixture.Z
+```
+
+The input SHA-256 was
+`109c1ed93ca7acd9241d3df1ebc62eae5b027b2bc06073cd3fecbf5653a7c282`.
+LZ4 CLI 1.10.0 (binary SHA-256
+`f0f8e5dece2d110ffb6b474cb0a43fb781d718dc71edfd7bfe61f216668fb3d0`)
+produced 103,195 bytes with SHA-256
+`747ca19820fb6efee6efc8e988c2e4b2dd9d62a8e89bc375a3eb59e301a7a2e6`.
+Zstandard CLI 1.5.7 (binary SHA-256
+`f63aacd3210aaacaa9fb59c69a367ca9124aa179ddcbb1da241fdc96d8196268`)
+produced 12,489 bytes with SHA-256
+`9c47672b83388770a9cbb16dc0dce685073bc49b6b16ffdb4b5a122346ecf47d`.
+`compress` produced 63,527 bytes with SHA-256
+`f0225910762f6fdfd59a2530cebb294c53b2d0f31fdf067fa21f5d8329015773`.
+All three decoded through the public API to exact input bytes.
+
+A second disposable `/dev/urandom` input exercised Unix `.Z` dictionary
+saturation and CLEAR behavior: 2,097,152 input bytes, SHA-256
+`a2355c737628013dcce033445f2505fa0bd75a57b44635deec3217ba7e578951`,
+became 2,823,532 compressed bytes, SHA-256
+`6c41c989112977a6bad4f0fe76d54543c852963a0fa265cea7fc78a5054a8b9e`,
+and decoded exactly. That nondeterministic input and every native-tool output
+remain uncommitted disposable evidence. Deterministic generated tests cover
+width transitions, block/non-block state, and CLEAR resets in CI.
+
 ## Current Rust structural evidence
 
 The ignored integration harness in

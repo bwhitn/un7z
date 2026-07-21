@@ -14,12 +14,17 @@ use pyo3::{
 use un7z::{ChecksumScope, Error, LimitKind};
 
 create_exception!(un7z._native, Un7zError, PyException, "Base un7z exception.");
-create_exception!(un7z._native, FormatError, Un7zError, "Malformed 7z input.");
+create_exception!(
+    un7z._native,
+    FormatError,
+    Un7zError,
+    "Malformed compressed input."
+);
 create_exception!(
     un7z._native,
     ChecksumError,
     Un7zError,
-    "A required archive checksum did not match."
+    "A required compressed-input checksum did not match."
 );
 create_exception!(
     un7z._native,
@@ -31,7 +36,7 @@ create_exception!(
     un7z._native,
     UnsupportedFeatureError,
     Un7zError,
-    "A valid 7z feature is not implemented."
+    "A valid input feature is not implemented."
 );
 create_exception!(
     un7z._native,
@@ -123,6 +128,7 @@ fn limit_name(limit: LimitKind) -> &'static str {
         LimitKind::TotalCoders => "total_coders",
         LimitKind::StreamsPerFolder => "streams_per_folder",
         LimitKind::TotalStreams => "total_streams",
+        LimitKind::StreamFrames => "stream_frames",
         LimitKind::Substreams => "substreams",
         LimitKind::HeaderProperties => "header_properties",
         LimitKind::CoderPropertyBytes => "coder_property_bytes",
@@ -161,7 +167,15 @@ pub(crate) fn map_core_error(py: Python<'_>, error: Error) -> PyErr {
         Error::Format { detail } => {
             let message = format!("invalid 7z format: {detail}");
             structured_error(py, FormatError::new_err(message), "format", |value| {
-                value.setattr("detail", detail)
+                value.setattr("detail", detail)?;
+                value.setattr("format", "7z")
+            })
+        }
+        Error::StreamFormat { format, detail } => {
+            let message = format!("invalid {format} stream: {detail}");
+            structured_error(py, FormatError::new_err(message), "format", |value| {
+                value.setattr("detail", detail)?;
+                value.setattr("format", format)
             })
         }
         Error::Checksum {
@@ -174,7 +188,21 @@ pub(crate) fn map_core_error(py: Python<'_>, error: Error) -> PyErr {
             };
             structured_error(py, ChecksumError::new_err(message), "checksum", |value| {
                 value.setattr("scope", checksum_scope_name(scope))?;
-                value.setattr("member_index", member_index)
+                value.setattr("member_index", member_index)?;
+                value.setattr("format", "7z")?;
+                value.setattr("frame_index", None::<u64>)
+            })
+        }
+        Error::StreamChecksum {
+            format,
+            frame_index,
+        } => {
+            let message = format!("{format} checksum mismatch at frame {frame_index}");
+            structured_error(py, ChecksumError::new_err(message), "checksum", |value| {
+                value.setattr("scope", "stream_frame")?;
+                value.setattr("member_index", None::<u64>)?;
+                value.setattr("format", format)?;
+                value.setattr("frame_index", frame_index)
             })
         }
         Error::UnsupportedMethod { method_id } => {
@@ -199,7 +227,22 @@ pub(crate) fn map_core_error(py: Python<'_>, error: Error) -> PyErr {
                 py,
                 UnsupportedFeatureError::new_err(message),
                 "unsupported_feature",
-                |value| value.setattr("feature", feature),
+                |value| {
+                    value.setattr("feature", feature)?;
+                    value.setattr("format", "7z")
+                },
+            )
+        }
+        Error::UnsupportedStreamFeature { format, feature } => {
+            let message = format!("unsupported {format} stream feature: {feature}");
+            structured_error(
+                py,
+                UnsupportedFeatureError::new_err(message),
+                "unsupported_feature",
+                |value| {
+                    value.setattr("feature", feature)?;
+                    value.setattr("format", format)
+                },
             )
         }
         Error::LimitExceeded {
@@ -423,11 +466,27 @@ mod tests {
                 },
                 "format",
             )?;
+            assert_mapping::<FormatError>(
+                py,
+                Error::StreamFormat {
+                    format: String::from("lz4"),
+                    detail: String::from("test"),
+                },
+                "format",
+            )?;
             assert_mapping::<ChecksumError>(
                 py,
                 Error::Checksum {
                     scope: ChecksumScope::Member,
                     member_index: Some(7),
+                },
+                "checksum",
+            )?;
+            assert_mapping::<ChecksumError>(
+                py,
+                Error::StreamChecksum {
+                    format: String::from("zstandard"),
+                    frame_index: 2,
                 },
                 "checksum",
             )?;
@@ -442,6 +501,14 @@ mod tests {
                 py,
                 Error::UnsupportedFeature {
                     feature: String::from("test feature"),
+                },
+                "unsupported_feature",
+            )?;
+            assert_mapping::<UnsupportedFeatureError>(
+                py,
+                Error::UnsupportedStreamFeature {
+                    format: String::from("lz4"),
+                    feature: String::from("external-dictionary"),
                 },
                 "unsupported_feature",
             )?;

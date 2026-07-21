@@ -1,8 +1,9 @@
 # un7z for Python
 
 `un7z` is the Python distribution for the repository's security-focused,
-unpack-only Rust 7z reader. The package imports as `un7z`; its implementation
-module is `un7z._native`.
+unpack-only Rust 7z reader and its separate LZ4/Zstandard/Unix `.Z` stream
+readers. The package imports as `un7z`; its implementation module is
+`un7z._native`.
 
 The binding delegates all parsing, graph validation, decoding, cryptography,
 CRC verification, limits, and path classification to the stable Rust core. It
@@ -17,6 +18,34 @@ destination when output must be published atomically.
 Python retains ownership of any password `str` passed by the caller and cannot
 be erased by Rust. Every Rust-side password copy is zeroized and kept only in
 the corresponding archive session.
+
+Standalone inputs never become synthetic archives. Use `open_stream_bytes` or
+`open_stream_path`, inspect `.info`, and select a writer or callback yourself:
+
+```python
+import io
+import un7z
+
+stream = un7z.open_stream_path("payload.zst")
+print(stream.info.format, stream.info.uncompressed_size)
+
+output = io.BytesIO()
+decoded_bytes = stream.extract_to(output)
+```
+
+The optional `format=` value accepts `lz4`, `zstd`/`zstandard`, or
+`z`/`compress`/`unix-compress`; omit it for magic detection. The binding never
+removes an input suffix or opens a derived output path. `stream(callback)`
+sends bounded chunks and preserves Python exceptions or `False` cancellation.
+`verify()` decodes to a discard sink. There is intentionally no Python method
+that returns the complete output as one object.
+
+For LZ4 and Zstandard, successful return means every checksum declared by the
+frames was finalized. A writer/callback may have observed earlier unverified
+chunks, so atomic publication still requires caller-managed staging. Unix `.Z`
+contains no checksum or declared decoded size; successful return means the LZW
+decoder reached a valid EOF under the configured bounds, not that the bytes
+are authenticated or protected against clean-boundary truncation.
 
 ```python
 import un7z

@@ -57,4 +57,11 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "stream_formats"
+path = "fuzz_targets/stream_formats.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]

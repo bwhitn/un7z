@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "un7z"
 version = "0.1.0"
-description = "Security-focused, unpack-only 7z reader"
+description = "Security-focused, unpack-only 7z and compressed-stream reader"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT OR Apache-2.0"

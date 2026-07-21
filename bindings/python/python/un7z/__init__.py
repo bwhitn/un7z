@@ -1,4 +1,4 @@
-"""Security-focused, unpack-only 7z archive access."""
+"""Security-focused, unpack-only 7z archive and compressed-stream access."""
 
 from ._native import (
     Archive,
@@ -7,6 +7,7 @@ from ._native import (
     CancelledError,
     CancellationToken,
     ChecksumError,
+    CompressedStream,
     Entry,
     FormatError,
     InternalError,
@@ -14,12 +15,15 @@ from ._native import (
     Limits,
     MissingVolumeError,
     PasswordRequiredError,
+    StreamInfo,
     Un7zError,
     UnsupportedFeatureError,
     UnsupportedMethodError,
     WrongPasswordOrCorruptError,
     open_bytes,
     open_path,
+    open_stream_bytes,
+    open_stream_path,
     open_volumes,
 )
 
@@ -32,6 +36,7 @@ __all__ = [
     "CancelledError",
     "CancellationToken",
     "ChecksumError",
+    "CompressedStream",
     "Entry",
     "FormatError",
     "InternalError",
@@ -39,11 +44,14 @@ __all__ = [
     "Limits",
     "MissingVolumeError",
     "PasswordRequiredError",
+    "StreamInfo",
     "Un7zError",
     "UnsupportedFeatureError",
     "UnsupportedMethodError",
     "WrongPasswordOrCorruptError",
     "open_bytes",
     "open_path",
+    "open_stream_bytes",
+    "open_stream_path",
     "open_volumes",
 ]

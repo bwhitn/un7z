@@ -46,3 +46,11 @@ expressed in safe Rust using the 0BSD XZ Utils filter descriptions at commit
 f3b5688159c60495f48db3942a36509671dfce89 as an algorithm reference. No XZ
 library code is linked or shipped as a runtime dependency. Exact files and
 hashes are recorded in PROVENANCE.md.
+
+The safe Rust Unix `compress` (`.Z`) decoder adapts the variable-width LZW
+code-reader, width-transition, CLEAR-reset, and dictionary semantics of NetBSD
+`usr.bin/compress/zopen.c` at commit
+bd9f26305380f03b3821f55381448a82827d6749. Copyright (c) 1985, 1986, 1992,
+1993 The Regents of the University of California. Its BSD-3-Clause notice is
+reproduced in LICENSE-NETBSD-ZOPEN-BSD-3-CLAUSE; exact adaptation details are
+recorded in PROVENANCE.md.

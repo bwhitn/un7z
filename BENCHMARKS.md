@@ -19,6 +19,8 @@ warmup occur outside the timed loop.
 | 2026-07-18 | Pre-commit Phase 6 snapshot | Natural-order solid `Archive::extract_entries_to`, `lzma2.7z`, 50 timed iterations | 10 entries; 36,054 decoded bytes and 92,896 deterministic work units/iteration; 0.042591 s total; 40.364 MiB/s | 1,359,872-byte direct-process peak RSS; 8,184-byte retained archive payload account; one 36,054-byte folder output | Direct release binary under macOS `/usr/bin/time -l`; correctness warmup passed; every timed iteration matched byte and work counts |
 | 2026-07-18 | Pre-commit Phase 7 snapshot | Python FFI | Not benchmarked | Not measured | Installed-wheel test verifies that another Python thread advances during 8 MiB Copy verification; this is a GIL-detachment correctness test, not a throughput or memory result |
 | 2026-07-21 | Uncommitted ALES-readiness snapshot | Python natural-order batch adapter | Not benchmarked | Caller-retained Python buffers not measured | Installed-wheel functional test proves one shared work budget and a batch work cost below two random-access solid-folder decodes; no new decoder path was added |
+| 2026-07-21 | Uncommitted standalone-stream snapshot | LZ4, Zstandard, and Unix `.Z` extraction | Not benchmarked | Decoder dictionaries/windows are preflighted; process peak not measured | Exact native-tool differentials and bounded-memory tests are functional evidence only, not throughput measurements |
+| 2026-07-21 | Uncommitted release-profile audit | macOS x86-64 CPython ABI3 wheel | ThinLTO/O3 retained; 719,812-byte wheel | 1,424,240-byte native extension before installation metadata | FatLTO/O3 saved 2.0% but regressed Unix `.Z`; FatLTO/Oz saved 19.2% but materially regressed every measured decoder |
 
 The exact Git object for these historical measurements was not recorded. The
 `Pre-commit` labels preserve that limitation; the rows must not be attributed
@@ -72,6 +74,38 @@ account. A future Python benchmark must separately report native decoder time,
 callback overhead, chunk count, interpreter version, free-threaded/GIL mode,
 and Python-owned peak memory. The functional detachment regression is not used
 as performance evidence.
+
+The standalone stream API likewise has no timing claim yet. Its tests prove
+checked frame/code traversal, bounded output, and preflight of LZ4 working
+memory, Zstandard windows, and the complete Unix `.Z` prefix/suffix/expansion
+tables. The native LZ4, Zstandard, and `compress` comparisons record exact
+bytes and hashes in `CORPUS.md`, but they are not benchmarks. A future result
+must separately report compressed/output sizes, frame or code characteristics,
+checksum mode, decoder window/dictionary accounting, peak RSS, and sink cost.
+
+## Release compilation profile audit
+
+The 2026-07-21 wheel audit compared clean, stripped `cp39-abi3` builds on the
+same x86-64 macOS host. All profiles retained one codegen unit, checked integer
+overflow, and unwind semantics required by the Python panic boundary. The
+benchmark repeatedly verified 16 MiB all-zero fixtures authored temporarily by
+stock `7zz` 26.02, LZ4 1.10.0, Zstandard 1.5.7, and macOS `compress`; fixtures
+and build targets remained outside the repository.
+
+| Profile | Wheel bytes | LZMA2 | LZ4 | Zstandard | Unix `.Z` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| ThinLTO, `opt-level=3` | 719,812 | 134.83 MiB/s | 6,060.25 MiB/s | 3,281.28 MiB/s | 154.02 MiB/s |
+| FatLTO, `opt-level=3` | 705,407 | 142.64 MiB/s | 6,011.08 MiB/s | 3,476.72 MiB/s | 132.91 MiB/s |
+| FatLTO, `opt-level="z"` | 581,487 | 88.37 MiB/s | 2,634.88 MiB/s | 2,711.34 MiB/s | 91.98 MiB/s |
+
+Each throughput is the median of three samples after a warmup. LZMA2 and Unix
+`.Z` used eight verifications per sample, LZ4 used 100, and Zstandard used 50.
+The highly compressible fixture makes this a compiler-profile comparison, not
+a general decoder-performance claim. ThinLTO/O3 remains the release profile:
+FatLTO's 2.0% wheel reduction does not justify its observed 13.7% Unix `.Z`
+regression, while optimizing for size caused substantially broader slowdowns.
+Cargo and maturin both strip release symbols; `panic="unwind"` and overflow
+checks remain deliberate security requirements and are not size-tuning knobs.
 
 ## Expanded future methodology
 

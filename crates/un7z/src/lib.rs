@@ -6,13 +6,14 @@
     clippy::panic,
     clippy::unwrap_used
 )]
-//! A security-focused, unpack-only 7z reader.
+//! A security-focused, unpack-only 7z and compressed-stream reader.
 //!
-//! The stable surface owns archive input, exposes concrete metadata, and sends
-//! decoded bytes only to caller-selected memory or output sinks. It never
-//! creates, edits, or automatically extracts archive paths. See [`Archive`]
-//! for opening and listing, [`MemberReader`] for bounded reads with explicit
-//! checksum finalization, and [`Limits`] for attacker-controlled resource
+//! The stable surface owns archive or standalone-stream input, exposes concrete
+//! metadata, and sends decoded bytes only to caller-selected memory or output
+//! sinks. It never creates, edits, or automatically extracts paths. See
+//! [`Archive`] for 7z opening and listing, [`MemberReader`] for bounded member
+//! reads with explicit checksum finalization, [`CompressedStream`] for LZ4,
+//! Zstandard, and Unix `.Z`, and [`Limits`] for attacker-controlled resource
 //! bounds.
 //!
 //! Low-level parser and coder-graph types are intentionally not part of this
@@ -47,6 +48,28 @@
 //! filesystem policy. Even after the last [`MemberReader::read_chunk`] returns
 //! zero, call [`MemberReader::finish`] before treating streamed bytes as
 //! verified.
+//!
+//! # Standalone compressed streams
+//!
+//! ```no_run
+//! use std::{io, path::Path};
+//! use un7z::{CancellationToken, CompressedStream, Limits, WorkBudget};
+//!
+//! # fn main() -> un7z::Result<()> {
+//! let cancellation = CancellationToken::new();
+//! let mut open_budget = WorkBudget::bounded(100_000_000);
+//! let stream = CompressedStream::open_path(
+//!     Path::new("payload.zst"),
+//!     Limits::default(),
+//!     &cancellation,
+//!     &mut open_budget,
+//! )?;
+//! println!("{} {:?}", stream.info().format(), stream.info().uncompressed_size());
+//! let mut decode_budget = WorkBudget::bounded(100_000_000);
+//! stream.extract_to(&mut io::sink(), &cancellation, &mut decode_budget)?;
+//! # Ok(())
+//! # }
+//! ```
 
 mod archive;
 mod bounded;
@@ -65,6 +88,7 @@ mod parser;
 mod password;
 mod path;
 mod raw;
+mod stream;
 mod validate;
 mod volume;
 
@@ -84,10 +108,14 @@ pub use model::{EntryKind, FileEntry};
 #[doc(hidden)]
 pub use parser::{parse_archive, parse_archive_header};
 pub use path::{UnsafePathReason, validate_safe_path, validate_safe_utf16_path};
+pub use stream::{
+    CompressedStream, Lz4StreamInfo, StreamExtraction, StreamFormat, StreamInfo, StreamInfoKind,
+    UnixCompressStreamInfo, ZstandardStreamInfo,
+};
 pub use volume::{MemoryVolumeProvider, PathVolumeProvider, Volume, VolumeProvider, VolumeRequest};
 
 /// The result type returned by the core library.
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// A machine-readable statement of the current implementation boundary.
-pub const IMPLEMENTATION_STATUS: &str = "phase-6-stable-rust-api-pre-alpha";
+pub const IMPLEMENTATION_STATUS: &str = "phase-6-stable-rust-api-plus-streams-pre-alpha";

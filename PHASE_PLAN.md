@@ -478,6 +478,16 @@ separate valid or malformed corpus is available.
     tests, installed ABI3 wheel tests, fuzz generator/smoke, ordinary coverage,
     and all three cargo-deny graphs passed. Hosted ARM64, Rust 1.85, Miri, and
     sanitizer evidence remain pending their configured CI runs.
+18. Added explicitly separate unpack-only readers for standalone LZ4 frames,
+    Zstandard frames, and Unix `compress` `.Z` streams without changing the
+    7z `Archive` model or CLI. The readers validate bounded frame/code layouts,
+    enforce input/dictionary/frame/output/work/cancellation limits, verify all
+    declared checksums, and write only to caller-selected sinks. Rust and
+    Python APIs expose metadata and bounded extraction; generated hostile
+    tests, a dedicated fuzz target, native-tool exact-output differentials,
+    the NetBSD BSD-3-Clause adaptation notice, and an installed ABI3 wheel
+    smoke test accompany the implementation. External LZ4/Zstandard
+    dictionaries and Zstandard magicless frames remain typed unsupported.
 
 No binary oracle output or fuzzer working corpus is committed. Further
 compatibility work should use these generated/fuzz/coverage paths and retain a

@@ -126,12 +126,14 @@ impl ParsedArchive {
     }
 
     /// Returns the verified signature and next-header envelope.
+    #[cfg(any(test, feature = "unstable-internals"))]
     #[must_use]
     pub const fn envelope(&self) -> HeaderEnvelope {
         self.envelope
     }
 
     /// Returns the validated stored next-header model.
+    #[cfg(any(test, feature = "unstable-internals"))]
     #[must_use]
     pub const fn next_header(&self) -> &ParsedNextHeader {
         &self.next_header

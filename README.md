@@ -1,7 +1,8 @@
 # un7z
 
 `un7z` is a security-focused, unpack-only Rust implementation of the 7z
-container format.
+container format, with a separate single-stream API for LZ4 frame files,
+Zstandard frame files, and Unix `compress` `.Z` files.
 
 > **Current status: Phase 7 Python binding implemented, pre-alpha.** The core
 > validates regular and bounded-SFX archives, executes arbitrary validated
@@ -14,10 +15,14 @@ container format.
 > sequential volumes. Member
 > and archive APIs enforce applicable CRCs; streaming callers must explicitly
 > call `finish()`. This is not a general “all 7z” compatibility claim.
+> Standalone streams do not become synthetic archives: they have no invented
+> member name, path, metadata, or CRC.
 
 The intended scope is reading, listing, verifying, decrypting, and
-decompressing archives. Archive creation and modification, automatic
-filesystem extraction and integration with ALES are outside the current scope.
+decompressing archives plus reading and decompressing the three documented
+standalone stream formats. Archive/stream creation and modification,
+automatic filesystem extraction, and integration with ALES are outside the
+current scope.
 
 ## Workspace
 
@@ -85,6 +90,17 @@ unexpected Rust unwinds are contained at the native boundary. No parser,
 decoder, cryptography, or path-policy logic is duplicated in the binding, and
 archive names are never automatic destinations.
 
+The standalone `CompressedStream` surface is deliberately separate from
+`Archive`. It validates concatenated/skippable LZ4 and Zstandard frames,
+standard LZ4 legacy frames, and 9- through 16-bit Unix `.Z` LZW streams. It
+enforces input/frame/dictionary/output/work/cancellation limits and verifies
+every checksum the selected format carries. LZ4/Zstandard external
+dictionaries are typed unsupported. Unix `.Z` has no embedded checksum or
+decoded-size field, so successful decoding is not an authenticity guarantee.
+The Python adapter exposes the same boundary as `open_stream_bytes` and
+`open_stream_path`, with output delivered only to caller-owned writers or
+callbacks. The CLI remains 7z-only.
+
 ## Build
 
 The workspace uses Rust edition 2024 and has a minimum supported Rust version
@@ -127,6 +143,11 @@ The Rust API additionally provides `open_bytes_with_password`,
 `open_volumes_with_password`. Passwords are not accepted by the current small
 CLI so they are not exposed through process arguments.
 
+Standalone Rust callers use `CompressedStream::open_bytes` or
+`CompressedStream::open_path`, inspect `StreamInfo`, and call `extract_to` or
+`verify`. Python callers use `open_stream_bytes` or `open_stream_path`; these
+functions never infer an output filename from the input path.
+
 ## Project controls
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) defines trust boundaries and module
@@ -155,4 +176,5 @@ Original Rust work is available under **MIT OR Apache-2.0**. Any translated or
 adapted work retains the applicable BSD-3-Clause notice. See `LICENSE-MIT`,
 `LICENSE-APACHE`, `LICENSE-BSD-3-CLAUSE`,
 `LICENSE-ULIKUNITZ-XZ-BSD-3-CLAUSE`,
-`LICENSE-STANGELANDCL-PPMD-MIT`, `NOTICE`, and `PROVENANCE.md`.
+`LICENSE-STANGELANDCL-PPMD-MIT`,
+`LICENSE-NETBSD-ZOPEN-BSD-3-CLAUSE`, `NOTICE`, and `PROVENANCE.md`.

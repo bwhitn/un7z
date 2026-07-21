@@ -159,6 +159,34 @@ No result is claimed for the literal `<CORPUS>` or `<MALFORMED_CORPUS>`
 placeholders; the owner confirmed that no such external sets are available.
 See `CORPUS.md` and `COMPATIBILITY.md` for the generated-evidence boundary.
 
+Standalone stream differentials use native tools only to author temporary
+test input; runtime code never invokes them. Supply one format at a time:
+
+```text
+UN7Z_STREAM_FORMAT=lz4 \
+UN7Z_STREAM_FIXTURE=/tmp/expected.lz4 \
+UN7Z_STREAM_EXPECTED=/tmp/expected.txt \
+  cargo test -p un7z --test stream_formats --locked \
+    optional_external_stream_fixture_matches_exact_bytes
+
+UN7Z_STREAM_FORMAT=zstandard \
+UN7Z_STREAM_FIXTURE=/tmp/expected.zst \
+UN7Z_STREAM_EXPECTED=/tmp/expected.txt \
+  cargo test -p un7z --test stream_formats --locked \
+    optional_external_stream_fixture_matches_exact_bytes
+
+UN7Z_UNIX_COMPRESS_FIXTURE=/tmp/expected.Z \
+UN7Z_UNIX_COMPRESS_EXPECTED=/tmp/expected.txt \
+  cargo test -p un7z --test stream_formats --locked \
+    optional_unix_compress_oracle_fixture_matches_exact_bytes
+```
+
+Normal tests independently generate valid standard/legacy LZ4 frames,
+Zstandard frames, and Unix `.Z` code streams and require exact output,
+checksum/corruption handling, truncation behavior, dictionary/window/frame/
+output/work limits, and cancellation. `CORPUS.md` records the reviewed local
+native-tool versions, hashes, commands, and non-retention boundary.
+
 ## Coverage
 
 Coverage is measured for the core independently from the intentionally small
@@ -330,17 +358,20 @@ packaging/FFI platform results; the independent Python fixture still adds
 positive decoder evidence only for Copy.
 
 On 2026-07-21 a locally built `cp39-abi3` macOS x86-64 wheel installed into a
-clean virtual environment and all 13 binding tests passed. CI now has explicit
+clean CPython 3.12 virtual environment and all 15 binding tests passed. Its
+metadata has no `Requires-Dist`, and its license payload includes the NetBSD
+BSD-3-Clause notice for the Unix `.Z` adaptation. CI now has explicit
 manylinux-compatible Linux x86-64 and aarch64 build jobs; the aarch64 artifact
 is installed and tested on a native `ubuntu-24.04-arm` runner. Those new Linux
 jobs remain configured evidence until their first hosted run completes.
 
 The same 2026-07-21 local gate passed root and separately locked binding/fuzz
 format checks, root strict all-target/all-feature Clippy, binding and fuzz
-strict Clippy, 173 non-ignored Rust tests plus the core doctest, two binding
-Rust tests, 13 installed-wheel Python tests, the 21-profile fuzz generator,
-and cargo-deny 0.20.2 for all three dependency graphs. The host wheel is
+strict Clippy, 191 non-ignored root Rust tests plus two core doctests, two
+binding Rust tests, 15 installed-wheel Python tests, the 21-profile fuzz
+generator, a 10,000-run finite standalone-stream fuzz smoke, and cargo-deny
+0.20.2 for all three dependency graphs. The host wheel is
 `un7z-0.1.0-cp39-abi3-macosx_10_12_x86_64.whl`; its metadata has no
 `Requires-Dist`. Local Miri, Rust 1.85 execution, Linux wheel execution, and
-instrumented cargo-fuzz are unavailable on this Intel macOS stable-only host
-and remain configured CI gates.
+instrumented nightly cargo-fuzz are unavailable on this Intel macOS
+stable-only host and remain configured CI gates.
