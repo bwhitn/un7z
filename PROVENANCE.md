@@ -78,6 +78,33 @@ PyO3 or maturin source was copied or adapted. The Python Copy-archive test
 builder is an original deterministic boundary fixture and makes no new codec
 compatibility claim.
 
+The 2026-07-21 PPMd interoperability rule is original safe Rust based on the
+task's externally supplied behavioral description of py7zr 1.1.3: retain the
+canonical five-byte order/memory record, and accept a seven-byte record only
+when its final two reserved bytes are zero. No py7zr source, decoder code, or
+archive fixture was inspected, copied, translated, vendored, or added as a
+dependency. `crates/un7z/src/coder_properties.rs` centralizes that rule for
+model validation and decoding; the PPMd algorithm remains solely the already
+admitted `stangelandcl/ppmd` adaptation. Generated tests wrap the existing
+stock-`7zz` packed PPMd vector with both property records and original hostile
+variants.
+
+The Python natural-order batch adapter, structural sink protocol, generated
+solid Copy fixtures, type stubs, and wheel-matrix changes are original project
+work licensed MIT OR Apache-2.0. They delegate graph execution, folder reuse,
+work/cancellation accounting, and CRC finalization to the existing stable core
+API. No ALES or py7zr code was inspected or incorporated. The workflow design
+uses the public documentation for the already pinned maturin action and
+GitHub-hosted ARM64 runner labels; neither is runtime code.
+
+The incomplete Brotli negative vector is original test derivation: it removes
+the terminal byte from the already recorded ten-byte complete `hello\n`
+`brotli-decompressor` vector. This models the externally described
+flush-without-finish behavior without copying a py7zr stream or implementation.
+The complete vector retains its BSD-3-Clause OR MIT upstream provenance; the
+one-byte truncation and regression assertions are MIT OR Apache-2.0 project
+work.
+
 The IA64, ARM Thumb, and RISC-V instruction layouts and bijective decoder
 semantics were independently expressed in checked Rust after inspecting the
 corresponding liblzma filter descriptions in XZ Utils commit
@@ -224,7 +251,7 @@ are offered under MIT OR Apache-2.0.
 | `crates/un7z/src/parser.rs`: `parse_raw_signature_header`, `parse_archive_header` | `struct.go`: `signatureHeader`, `startHeader`; `reader.go`: `findSignature`, `Reader.init` | `dcfc72a0ee9f527c55521f44ffdf1c31b732e256` | Adapted signature/start-header layout, relative next-header range, CRC layers, and SFX behavior; independently redesigned with typed errors, configurable bounds, candidate isolation, checked arithmetic, cancellation, and work accounting | BSD-3-Clause upstream notice; Rust changes MIT OR Apache-2.0 |
 | `crates/un7z/src/raw.rs`: raw property, folder, PackInfo, UnpackInfo, SubStreamsInfo, StreamsInfo, FilesInfo, Header parsers | `types.go`: `readBool`, `readOptionalBool`, `readCRC`, `readSizes`, `readPackInfo`, `readCoder`, `readFolder`, `readUnpackInfo`, `readSubStreamsInfo`, `readStreamsInfo`, `readFilesInfo`, `readHeader` | `dcfc72a0ee9f527c55521f44ffdf1c31b732e256` | Adapted serialized field ordering and ID grammar, including the external-folder flag and `DataIndex`; rewritten as borrowed Rust syntax records with bounded reads, exact outer consumption, global count/property limits, checked totals, fallible allocation, cancellation, and typed unsupported features | BSD-3-Clause upstream notice; Rust changes MIT OR Apache-2.0 |
 | `crates/un7z/src/validate.rs`: file/substream mapping and inherited CRC handling | `reader.go`: `Reader.init`; `struct.go`: `streamsInfo.FileFolderAndSize`; `types.go`: `readSubStreamsInfo` | `dcfc72a0ee9f527c55521f44ffdf1c31b732e256` | Adapted archive-order mapping and substream semantics; replaced unchecked/raw indexing and zero sentinels with exact cardinality validation and `Option` values | BSD-3-Clause upstream notice; Rust changes MIT OR Apache-2.0 |
-| `crates/un7z/src/validate.rs`: LZMA2, PPMd, and AES property resource validation | `internal/lzma2/reader.go:NewReader`, `internal/ppmd/reader.go:NewReader`, `internal/aes7z/reader.go:NewReader` | `dcfc72a0ee9f527c55521f44ffdf1c31b732e256` | Adapted property layouts and LZMA2 dictionary/AES salt-IV-KDF calculations for structural and resource-limit validation before decoder construction | BSD-3-Clause upstream notice; Rust changes MIT OR Apache-2.0 |
+| `crates/un7z/src/validate.rs` and `coder_properties.rs`: LZMA2, PPMd, and AES property resource validation | `internal/lzma2/reader.go:NewReader`, `internal/ppmd/reader.go:NewReader`, `internal/aes7z/reader.go:NewReader`; py7zr 1.1.3 seven-byte behavior supplied as an external requirement | `dcfc72a0ee9f527c55521f44ffdf1c31b732e256`; no py7zr source revision inspected | Adapted canonical property layouts and LZMA2 dictionary/AES salt-IV-KDF calculations for structural and resource-limit validation before decoder construction; the strict zero-reserved seven-byte PPMd admission is original Rust | BSD-3-Clause upstream notice; new Rust changes MIT OR Apache-2.0 |
 | `crates/un7z/src/decode/filters.rs`: Delta, x86 BCJ, PPC, ARM, ARM64, SPARC | `internal/delta/reader.go`; `internal/bra/{bcj,ppc,arm,arm64,sparc}.go` | `dcfc72a0ee9f527c55521f44ffdf1c31b732e256` | Adapted decoder transforms into checked, in-place safe Rust with bounded property parsing and cancellation/work checkpoints | BSD-3-Clause upstream notice; Rust changes MIT OR Apache-2.0 |
 | `crates/un7z/src/decode/filters.rs`: BCJ2 range and four-stream decoder | `internal/bcj2/reader.go` | `dcfc72a0ee9f527c55521f44ffdf1c31b732e256` | Adapted range/probability and side-stream semantics; replaced stream indexing and unchecked growth with checked cursors, exact side-stream consumption, fallible allocation, and output/work limits | BSD-3-Clause upstream notice; Rust changes MIT OR Apache-2.0 |
 | `crates/un7z/src/decode/lzma.rs`: range/probability trees, state machine, literal/length/distance decoding, dictionary history | `github.com/ulikunitz/xz/lzma`: `decoder.go`, `decoderdict.go`, `directcodec.go`, `distcodec.go`, `lengthcodec.go`, `literalcodec.go`, `operation.go`, `prob.go`, `properties.go`, `rangecodec.go`, `state.go`, `treecodecs.go` | `v0.5.15`, commit `7eee8a8a405163554a9accec7b9402ee21400769` | Adapted algorithm/state semantics into a one-shot safe Rust decoder with checked state access, exact declared-size/EOS behavior, fallible output allocation, dictionary-distance validation, and cancellation/work checks | Ulrich Kunitz BSD-3-Clause notice; Rust changes MIT OR Apache-2.0 |

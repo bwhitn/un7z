@@ -8,11 +8,27 @@ use pyo3::{
     types::{PyBool, PyBytes},
 };
 use un7z::{
-    CancellationToken, Error, LimitKind, Result as CoreResult, Volume, VolumeProvider,
-    VolumeRequest,
+    CancellationToken, EntrySink, Error, FileEntry, LimitKind, Result as CoreResult, Volume,
+    VolumeProvider, VolumeRequest,
 };
 
-use crate::errors::{PythonCallbackError, callback_cancelled_error};
+use crate::{
+    errors::{PythonCallbackError, callback_cancelled_error},
+    metadata::PyEntry,
+};
+
+fn callback_continues(
+    result: &Bound<'_, PyAny>,
+    return_type_error: &'static str,
+) -> PyResult<bool> {
+    if result.is_none() {
+        return Ok(true);
+    }
+    if !result.is_instance_of::<PyBool>() {
+        return Err(PyTypeError::new_err(return_type_error));
+    }
+    result.extract::<bool>()
+}
 
 #[derive(Clone, Copy)]
 pub(crate) enum SinkMode {
@@ -69,16 +85,7 @@ impl Write for PythonSink {
                     Ok(count)
                 }
                 SinkMode::Callback => {
-                    if result.is_none() {
-                        return Ok(bytes.len());
-                    }
-                    let is_bool = result.is_instance_of::<PyBool>();
-                    if !is_bool {
-                        return Err(PyTypeError::new_err(
-                            "stream callback must return None or bool",
-                        ));
-                    }
-                    if !result.extract::<bool>()? {
+                    if !callback_continues(&result, "stream callback must return None or bool")? {
                         self.cancellation.cancel();
                         return Err(callback_cancelled_error(py));
                     }
@@ -91,6 +98,74 @@ impl Write for PythonSink {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+pub(crate) struct PythonEntrySink {
+    target: Py<PyAny>,
+    cancellation: CancellationToken,
+}
+
+impl PythonEntrySink {
+    pub(crate) const fn new(target: Py<PyAny>, cancellation: CancellationToken) -> Self {
+        Self {
+            target,
+            cancellation,
+        }
+    }
+
+    fn finish_callback(&self, result: PyResult<bool>) -> CoreResult<()> {
+        match result {
+            Ok(true) => self.cancellation.check(),
+            Ok(false) => {
+                self.cancellation.cancel();
+                Err(Error::Cancelled)
+            }
+            Err(error) => Err(Error::Io(PythonSink::callback_error(error))),
+        }
+    }
+}
+
+impl EntrySink for PythonEntrySink {
+    fn begin_entry(&mut self, member_index: u64, entry: &FileEntry, size: u64) -> CoreResult<()> {
+        let result = Python::attach(|py| {
+            let entry = Py::new(py, PyEntry::from_core(member_index, entry))?;
+            let result = self
+                .target
+                .bind(py)
+                .call_method1("begin_entry", (entry, size))?;
+            callback_continues(&result, "entry sink begin_entry() must return None or bool")
+        });
+        self.finish_callback(result)
+    }
+
+    fn write_entry(&mut self, member_index: u64, bytes: &[u8]) -> CoreResult<()> {
+        let result = Python::attach(|py| {
+            let chunk = PyBytes::new_with(py, bytes.len(), |output| {
+                output.copy_from_slice(bytes);
+                Ok(())
+            })?;
+            let result = self
+                .target
+                .bind(py)
+                .call_method1("write_entry", (member_index, chunk))?;
+            callback_continues(&result, "entry sink write_entry() must return None or bool")
+        });
+        self.finish_callback(result)
+    }
+
+    fn finish_entry(&mut self, member_index: u64) -> CoreResult<()> {
+        let result = Python::attach(|py| {
+            let result = self
+                .target
+                .bind(py)
+                .call_method1("finish_entry", (member_index,))?;
+            callback_continues(
+                &result,
+                "entry sink finish_entry() must return None or bool",
+            )
+        });
+        self.finish_callback(result)
     }
 }
 

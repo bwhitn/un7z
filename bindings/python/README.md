@@ -31,7 +31,42 @@ with open("caller-selected-output.bin", "wb") as output:
 
 `stream_entry(index, callback)` sends the same bounded chunks without first
 forming a complete Python output object. Return `None` or `True` to continue,
-or `False` to cancel. `open_volumes` accepts a callable or an object with
+or `False` to cancel.
+
+`extract_entries_to(sink)` is the natural-order batch surface for solid
+archives. It uses one core work budget and cancellation token for the entire
+operation and decodes each solid folder at most once. The sink is structural;
+archive names remain metadata and are never opened as filesystem paths:
+
+```python
+class Sink:
+    def begin_entry(self, entry: un7z.Entry, size: int) -> None:
+        # Select a destination by entry.index and caller policy, not entry.name.
+        ...
+
+    def write_entry(self, index: int, chunk: bytes) -> None:
+        # Chunks are bounded (currently at most 4 KiB).
+        ...
+
+    def finish_entry(self, index: int) -> None:
+        # This callback is the CRC-verified success boundary for the entry.
+        ...
+
+verified_bytes = archive.extract_entries_to(Sink())
+```
+
+Each sink method returns `None` or `True` to continue, or `False` to cancel.
+Python exceptions are re-raised unchanged. `begin_entry` and `write_entry` may
+be observed before a later member CRC failure; only `finish_entry` means that
+the core verified the applicable member and folder CRCs. A Python exception
+raised by `finish_entry` still makes the overall operation fail. Duplicate
+names remain separate index-addressed entries, and empty files receive
+`begin_entry` followed by `finish_entry` without a write call. Streamless
+directories and anti-items intentionally produce no sink event; callers that
+need to materialize those records must use `archive.entries()` metadata and
+their own validated policy.
+
+`open_volumes` accepts a callable or an object with
 `open_volume(index, expected_name)` returning `bytes` or `None`; all returned
 parts remain subject to the core volume and aggregate-input limits.
 

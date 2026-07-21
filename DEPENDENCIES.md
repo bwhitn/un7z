@@ -104,6 +104,16 @@ the repository MIT, Apache-2.0, upstream BSD-3-Clause, decoder notices, and
 `NOTICE` files. The CI-only `PyO3/maturin-action` is pinned to commit
 `86b9d133d34bc1b40018696f782949dac11bd380` (v1.49.4, MIT).
 
+The 2026-07-21 ALES-readiness changes add no Cargo or Python dependency and do
+not alter any lockfile. PPMd property interoperability is an in-tree parser
+rule over the already admitted decoder, and Python batch extraction is an
+adapter over the existing stable core `EntrySink`. `py7zr` and `7zz` are not
+installed, imported, or executed by a built wheel. Wheel CI uses the same
+pinned maturin action to cross-build manylinux-compatible x86-64 and aarch64
+`cp39-abi3` artifacts; the aarch64 artifact is smoke-tested on GitHub's native
+`ubuntu-24.04-arm` runner. GitHub-hosted runners and Actions are CI platforms,
+not shipped dependencies.
+
 On 2026-07-18, after the Phase 5 in-tree method additions,
 cargo-deny 0.20.2 reported `advisories ok, bans ok, licenses ok, sources ok`
 for both the runtime workspace and the separately locked fuzz package. The
@@ -132,6 +142,9 @@ After pinning `ruzstd` 0.8.1 to retain Rust 1.85 compatibility, cargo-deny
 0.20.2 reported the same four successful checks for the runtime workspace,
 fuzz package, and Python binding on 2026-07-19. No transitive dependency
 changed; only the direct `ruzstd` version and checksum changed in each lockfile.
+The same three cargo-deny 0.20.2 graphs reported `advisories ok, bans ok,
+licenses ok, sources ok` on 2026-07-21 after the PPMd, batch-adapter, Brotli,
+and wheel-matrix changes; no manifest or lockfile changed in that work.
 `cargo-deny`, cargo-fuzz, cargo-llvm-cov, Miri, Rust toolchains, GitHub Actions,
 and `7zz` are development/test tools, not runtime dependencies. The local
 coverage/fuzz audit used cargo-llvm-cov 0.8.7 and cargo-fuzz 0.13.2 installed

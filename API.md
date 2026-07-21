@@ -75,7 +75,8 @@ The Python surface maps the concrete Rust operations directly:
 - `open_bytes(data, *, limits, password, cancellation, max_work_units)`;
 - `open_volumes(provider, first_volume_name, *, ...)`;
 - `Archive.entries()`, `Archive.entry(index)`, `Archive.verify()`;
-- `Archive.extract_entry_to(index, writer, *, ...)`; and
+- `Archive.extract_entry_to(index, writer, *, ...)`;
+- `Archive.extract_entries_to(sink, *, cancellation, max_work_units)`; and
 - `Archive.stream_entry(index, callback, *, ...)`.
 
 `Entry` is an owned metadata snapshot. It preserves raw UTF-16 code units as
@@ -93,6 +94,20 @@ verified byte count only after the core extraction helper completes applicable
 folder/member CRC checks. Bytes observed before an exception are unverified and
 are not rolled back. Writer and callback exceptions are preserved.
 
+`extract_entries_to` is the Python batch API for natural-order extraction. Its
+sink receives `begin_entry(entry, size)`, bounded
+`write_entry(index, chunk)`, and `finish_entry(index)` calls. Methods return
+`None`/`True` to continue or `False` to cancel. One core `WorkBudget` and one
+`CancellationToken` cover the complete call, and the underlying Rust API
+decodes each solid folder at most once. `finish_entry`, not delivery of the
+last chunk, is the CRC-verified success boundary. Python callback exceptions
+retain their identity, and token or callback cancellation remains
+`CancelledError`. The sink chooses destinations by caller policy; the binding
+never converts archive names into paths. Duplicate names therefore remain
+distinct index-addressed entries. Empty files receive begin/finish with no
+write; streamless directories and anti-items produce no sink event and remain
+available through metadata listing.
+
 A Python volume provider is either a callable or an object with
 `open_volume(index, expected_name)`. It returns one `bytes` volume or `None`.
 The binding checks a volume's size before its fallible Rust copy; the core then
@@ -103,6 +118,8 @@ Rust retained-resource account.
 Rust-only parsing, KDF, decoding, and verification run with Python detached;
 the binding reattaches only for provider/writer/callback calls. Unexpected
 unwinds are contained and translated to `InternalError`. The wheel uses the
-CPython limited API for Python 3.9 and newer. The Python adapter remains
+CPython limited API for Python 3.9 and newer. CI builds Linux x86-64 and
+Linux aarch64 ABI3 wheels in addition to the host macOS and Windows wheels;
+the Rust binding retains the repository MSRV of 1.85. The Python adapter remains
 pre-alpha in `0.1.0`; compatibility claims remain exactly those in
 `COMPATIBILITY.md`.

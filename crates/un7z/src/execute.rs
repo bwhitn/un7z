@@ -3,6 +3,7 @@
 use crate::{
     ChecksumScope, Error, LimitKind, Limits, Result,
     checksum::Crc32,
+    coder_properties::parse_ppmd_properties,
     decode::{
         METHOD_AES, METHOD_ARM, METHOD_ARM_THUMB, METHOD_ARM64, METHOD_BCJ, METHOD_BCJ2,
         METHOD_BROTLI, METHOD_BZIP2, METHOD_COPY, METHOD_DEFLATE, METHOD_DEFLATE64, METHOD_DELTA,
@@ -111,11 +112,7 @@ fn validate_coder_registration(coder: &Coder) -> Result<()> {
         }
     } else if method == METHOD_PPMD {
         validate_arity(coder, 1, 1)?;
-        if coder.properties().len() != 5 {
-            return Err(format_error(
-                "PPMd properties must contain exactly five bytes",
-            ));
-        }
+        let _ = parse_ppmd_properties(coder.properties())?;
     } else if method == METHOD_DELTA {
         validate_arity(coder, 1, 1)?;
         if coder.properties().len() != 1 {

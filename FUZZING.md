@@ -58,10 +58,11 @@ four-input success coverage uses both an in-process seed and the corpus-free
 generated `7zz` oracle; malformed graph/input coverage remains in the fuzz
 target.
 
-Every `decoding` input now also selects one of 20 complete, CRC-correct,
+Every `decoding` input now also selects one of 21 complete, CRC-correct,
 in-process archive profiles: Copy; the fixed raw-LZMA EOS vector; three LZMA2
 dictionary properties; stored Deflate and Deflate64; fixed BZip2, Brotli, and
-PPMd vectors; uncompressed LZ4 and Zstandard frames; direct-KDF AES; a
+PPMd vectors (the PPMd payload is exercised with both canonical five-byte and
+zero-reserved seven-byte properties); uncompressed LZ4 and Zstandard frames; direct-KDF AES; a
 reverse-declaration Copy graph; four-input BCJ2; LZMA2-to-BCJ and
 LZMA2-to-PPC chains; and Copy-to-Delta chains at distances 1, 4, and 256.
 Input-derived payloads are capped at 64 bytes. The positive archive must open,
@@ -149,7 +150,7 @@ cargo test --manifest-path fuzz/Cargo.toml --locked
 cargo deny --manifest-path fuzz/Cargo.toml check
 ```
 
-The standalone integration test enumerates all 20 positive profiles and all
+The standalone integration test enumerates all 21 positive profiles and all
 eight mutation classes. It is a deterministic generator invariant check, not a
 replacement for libFuzzer mutation or oracle differential tests. The fuzz-smoke
 CI job runs this invariant test before launching the six targets.
@@ -187,7 +188,9 @@ volumes reach the same `VolumeProvider` logic exercised by `volumes`.
 The FFI-only state space is covered by deterministic installed-wheel tests for
 invalid archive bytes, CRC failure, unsafe raw UTF-16 names, provider absence,
 limits, cancellation, callback exception identity, callback `False`, writer
-delivery, and concurrent Python progress during detached Rust work. The native
+delivery, natural-order solid batch extraction, empty and duplicate entries,
+batch CRC/exception/cancellation boundaries, shared work/output limits, and
+concurrent Python progress during detached Rust work. The native
 unwind helper has a Rust regression that injects an unwind and observes
 containment. A future dedicated CPython fuzz harness must be added only if the
 adapter gains independent conversion grammar or stateful callback scheduling;
@@ -343,3 +346,13 @@ ended at 3,661 counters and 8,255 features, but the harness changed, so this is
 feedback-depth evidence rather than a source-coverage delta. This run used the
 same Homebrew-stable `RUSTC_BOOTSTRAP=1 --sanitizer none` fallback and therefore
 does not replace the nightly AddressSanitizer gate.
+
+On 2026-07-21, after adding the twenty-first zero-reserved seven-byte PPMd
+profile, the deterministic 21-profile/eight-mutation test passed. A freshly
+built stable `decoding` harness then completed 1,000 seedless executions with
+no crash or timeout and 48 MiB reported RSS. It explicitly warned that
+sanitizer hooks and coverage instrumentation were missing. Direct cargo-fuzz
+could not start because this host has stable Rust only and rejects its nightly
+`-Zsanitizer` option; Miri is likewise not installed. This result is therefore
+only a harness/no-panic smoke, while nightly ASan fuzzing and Miri remain CI
+gates.

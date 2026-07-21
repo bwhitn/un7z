@@ -3,9 +3,9 @@
 This plan is ordered by security dependencies rather than method popularity.
 Every phase is reviewable on its own, keeps all completed gates green, and
 updates compatibility claims only when an identified corpus test passes.
-Phases 1-7 and post-phase hardening items 1-13 are present on `main` through
-merge commit `77c2176` (2026-07-20). Historical dates below identify when
-each review unit and its recorded local gates were performed.
+Phases 1-7 are present on `main`; subsequent compatibility-hardening review
+units are recorded below. Historical dates identify when each review unit and
+its recorded local gates were performed.
 
 ## Reference inspection completed before implementation
 
@@ -426,7 +426,7 @@ separate valid or malformed corpus is available.
     BZip2 gets invalid block headers. Encrypted-header cases retain hostile
     outer-byte and operation-boundary coverage without claiming that their
     encrypted inner property bytes were directly mutated.
-11. Added a corpus-free deterministic decoder generator with 20 complete,
+11. Added a corpus-free deterministic decoder generator with 21 complete,
     CRC-correct archive profiles and eight bounded structured mutation classes.
     Its standalone invariant test reaches production open, verification,
     extraction, graph, decoder, CRC, limit, work, and cancellation paths without
@@ -466,6 +466,18 @@ separate valid or malformed corpus is available.
     symlink restoration, rejected both raw-AES authoring forms with
     `E_NOTIMPL`, and reported `same-file=false` for stock hard-link extraction.
     It therefore adds byte-level evidence without a hard-link semantic claim.
+17. Added the ALES-readiness adapter work without modifying ALES: strict PPMd
+    admission for canonical five-byte properties and the py7zr 1.1.3
+    zero-reserved seven-byte form; generated exact/malformed/resource tests;
+    Python natural-order batch extraction with one shared budget/token and
+    CRC-finalized entry boundaries; a complete-versus-unfinished Brotli
+    regression; and explicit Linux x86-64/aarch64 ABI3 wheel jobs with native
+    aarch64 smoke testing. No dependency or lockfile changed, and neither
+    `py7zr` nor `7zz` is a runtime fallback. Local gate evidence is recorded in
+    `TESTING.md`: formatting, strict Clippy, full locked Rust tests, binding
+    tests, installed ABI3 wheel tests, fuzz generator/smoke, ordinary coverage,
+    and all three cargo-deny graphs passed. Hosted ARM64, Rust 1.85, Miri, and
+    sanitizer evidence remain pending their configured CI runs.
 
 No binary oracle output or fuzzer working corpus is committed. Further
 compatibility work should use these generated/fuzz/coverage paths and retain a

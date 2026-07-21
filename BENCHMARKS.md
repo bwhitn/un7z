@@ -18,6 +18,7 @@ warmup occur outside the timed loop.
 | 2026-07-18 | Pre-commit Phase 5 snapshot | Natural-order solid `Archive::extract_entries_to`, `lzma2.7z`, 50 timed iterations | 36,054 decoded bytes/iteration; 0.038949 s total; 44.139 MiB/s | Not measured | Same reproducibility workload after remaining-method integration; counting sink correctness warmup passed; one solid folder decoded per iteration |
 | 2026-07-18 | Pre-commit Phase 6 snapshot | Natural-order solid `Archive::extract_entries_to`, `lzma2.7z`, 50 timed iterations | 10 entries; 36,054 decoded bytes and 92,896 deterministic work units/iteration; 0.042591 s total; 40.364 MiB/s | 1,359,872-byte direct-process peak RSS; 8,184-byte retained archive payload account; one 36,054-byte folder output | Direct release binary under macOS `/usr/bin/time -l`; correctness warmup passed; every timed iteration matched byte and work counts |
 | 2026-07-18 | Pre-commit Phase 7 snapshot | Python FFI | Not benchmarked | Not measured | Installed-wheel test verifies that another Python thread advances during 8 MiB Copy verification; this is a GIL-detachment correctness test, not a throughput or memory result |
+| 2026-07-21 | Uncommitted ALES-readiness snapshot | Python natural-order batch adapter | Not benchmarked | Caller-retained Python buffers not measured | Installed-wheel functional test proves one shared work budget and a batch work cost below two random-access solid-folder decodes; no new decoder path was added |
 
 The exact Git object for these historical measurements was not recorded. The
 `Pre-commit` labels preserve that limitation; the rows must not be attributed
@@ -60,8 +61,12 @@ This microbenchmark is a reproducibility baseline, not a statistically robust
 performance claim. The current decoder retains a complete bounded folder
 output, so this result does not claim constant-memory streaming.
 
-The Phase 7 adapter calls the same natural-order Rust operations and introduces
-no alternate parser or decoder. Writer/callback time, Python-owned buffers, and
+The Phase 7 adapter, including Python `extract_entries_to`, calls the same
+natural-order Rust operations and introduces no alternate parser or decoder.
+The batch test measures minimum accepted work allowances only as a
+deterministic complexity assertion: its allowance is greater than either
+single member and less than the sum of two random-access extractions. It is not
+a timing or throughput result. Writer/callback time, Python-owned buffers, and
 objects retained by a caller are outside the core benchmark and resource
 account. A future Python benchmark must separately report native decoder time,
 callback overhead, chunk count, interpreter version, free-threaded/GIL mode,

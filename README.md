@@ -41,7 +41,9 @@ CRC succeeds. Folder output is currently fully buffered and bounded; this is
 not yet a constant-memory decompression pipeline.
 
 Phase 4 adds bounded adapters for Deflate, BZip2, Brotli, LZ4, and Zstandard;
-an in-tree safe PPMd7 adaptation; RustCrypto AES-256-CBC/SHA-256 with
+an in-tree safe PPMd7 adaptation whose strict property parser accepts canonical
+five-byte records and zero-reserved seven-byte py7zr 1.1.3 records;
+RustCrypto AES-256-CBC/SHA-256 with
 per-archive zeroized passwords; encoded/encrypted headers; supported external
 Name/time/attribute/StartPos streams; Unix-mode/symlink metadata; and bounded
 path/memory sequential volume providers. Main-stream folder definitions stored
@@ -73,12 +75,15 @@ off-by-default `unstable-internals` test/fuzz feature. See [API.md](API.md),
 [ERRORS.md](ERRORS.md), and the runnable examples in `crates/un7z/examples`.
 
 Phase 7 wraps only that stable surface. Python archive work runs with the
-interpreter detached; writer and callback extraction crosses the boundary in
-bounded chunks and does not report success before Rust CRC finalization.
+interpreter detached; writer, callback, and natural-order batch extraction
+cross the boundary in bounded chunks and do not report success before Rust CRC
+finalization. Batch extraction shares one operation budget/token, decodes each
+solid folder at most once, and finalizes an entry only after its CRC succeeds.
 Python volume providers receive exact indices and names, core errors become
 structured exception subclasses, callback exceptions are preserved, and
 unexpected Rust unwinds are contained at the native boundary. No parser,
-decoder, cryptography, or path-policy logic is duplicated in the binding.
+decoder, cryptography, or path-policy logic is duplicated in the binding, and
+archive names are never automatic destinations.
 
 ## Build
 
@@ -92,7 +97,8 @@ cargo fmt --all -- --check
 cargo deny check
 ```
 
-The Python package targets Python 3.9+ through ABI3 wheels:
+The Python package targets Python 3.9+ through ABI3 wheels, including Linux
+x86-64 and aarch64 builds in CI:
 
 ```text
 maturin build --manifest-path bindings/python/Cargo.toml --release --locked
@@ -105,7 +111,8 @@ See [bindings/python/README.md](bindings/python/README.md) for the output,
 password, and callback trust boundaries.
 
 `7zz` is permitted only in differential tests. It is never linked, invoked, or
-required by the runtime library or CLI.
+required by the runtime library or CLI. `py7zr` is not a dependency or runtime
+fallback.
 
 The CLI deliberately has no automatic filesystem extraction command:
 

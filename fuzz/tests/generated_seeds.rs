@@ -75,7 +75,7 @@ fn verification_rejection(bytes: Vec<u8>, limits: Limits) -> Result<Error> {
 
 #[test]
 fn every_generated_profile_verifies_and_every_mutation_is_bounded() -> Result<()> {
-    for profile in 0_u8..20 {
+    for profile in 0_u8..21 {
         let data = [profile, 0, b'a', b'b', b'c', 0xe8, 0x0f, 0x80];
         let Some(seed) = support::generated_decoder_seed(&data) else {
             return Err(std::io::Error::other("generated decoder seed is missing").into());

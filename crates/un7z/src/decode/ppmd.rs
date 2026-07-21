@@ -8,6 +8,7 @@ use std::io;
 
 use crate::{
     Error, LimitKind, Limits, Result,
+    coder_properties::parse_ppmd_properties,
     parse_util::{ParseControl, check_limit, format_error, u64_to_usize, usize_to_u64},
 };
 
@@ -2394,25 +2395,9 @@ pub(crate) fn decode_ppmd(
     limits: Limits,
     control: &mut ParseControl<'_>,
 ) -> Result<Vec<u8>> {
-    let properties: [u8; 5] = properties
-        .try_into()
-        .map_err(|_| format_error("PPMd properties must contain exactly five bytes"))?;
-    let order = *properties
-        .first()
-        .ok_or_else(|| format_error("PPMd order property is missing"))?;
-    if !(2..=MAX_ORDER).contains(&order) {
-        return Err(format_error("PPMd order is outside 2 through 64"));
-    }
-    let memory_size = u32::from_le_bytes(
-        properties
-            .get(1..5)
-            .ok_or_else(|| format_error("PPMd memory property is truncated"))?
-            .try_into()
-            .map_err(|_| format_error("PPMd memory property has the wrong length"))?,
-    );
-    if memory_size < 1 << 11 {
-        return Err(format_error("PPMd memory size is below the format minimum"));
-    }
+    let properties = parse_ppmd_properties(properties)?;
+    let order = properties.order();
+    let memory_size = properties.memory_size();
     check_limit(
         u64::from(memory_size),
         limits.max_dictionary_bytes(),
@@ -2451,6 +2436,11 @@ mod tests {
     fn properties(order: u8, memory: u32) -> [u8; 5] {
         let [first, second, third, fourth] = memory.to_le_bytes();
         [order, first, second, third, fourth]
+    }
+
+    fn py7zr_properties(order: u8, memory: u32) -> [u8; 7] {
+        let [first, second, third, fourth] = memory.to_le_bytes();
+        [order, first, second, third, fourth, 0, 0]
     }
 
     // Synthetic text encoded by stock 7zz 26.02 with PPMd7 order 6 and a
@@ -2538,6 +2528,105 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    #[test]
+    fn zero_reserved_py7zr_properties_decode_the_exact_stock_vector() -> Result<()> {
+        let cancellation = CancellationToken::new();
+        let mut budget = WorkBudget::unlimited();
+        let mut control = ParseControl::new(&cancellation, &mut budget);
+        let decoded = decode_ppmd(
+            PPMD_SEED,
+            &py7zr_properties(6, 64 * 1024),
+            Some(50),
+            50,
+            Limits::default(),
+            &mut control,
+        )?;
+        assert_eq!(decoded, PPMD_SEED_OUTPUT);
+        assert!(budget.consumed() > 0);
+        Ok(())
+    }
+
+    #[test]
+    fn py7zr_properties_preserve_preallocation_resource_checks() {
+        let properties = py7zr_properties(6, 64 * 1024);
+        let cancellation = CancellationToken::new();
+        let mut budget = WorkBudget::unlimited();
+        let mut control = ParseControl::new(&cancellation, &mut budget);
+        let dictionary_limited = decode_ppmd(
+            PPMD_SEED,
+            &properties,
+            Some(50),
+            50,
+            Limits::builder()
+                .max_dictionary_bytes((64 * 1024) - 1)
+                .build(),
+            &mut control,
+        );
+        assert!(matches!(
+            dictionary_limited,
+            Err(Error::LimitExceeded {
+                limit: LimitKind::DictionaryBytes,
+                requested: 65_536,
+                maximum: 65_535,
+            })
+        ));
+        assert_eq!(budget.consumed(), 0);
+
+        let mut budget = WorkBudget::bounded(0);
+        let mut control = ParseControl::new(&cancellation, &mut budget);
+        let output_limited = decode_ppmd(
+            PPMD_SEED,
+            &properties,
+            Some(50),
+            49,
+            Limits::default(),
+            &mut control,
+        );
+        assert!(matches!(
+            output_limited,
+            Err(Error::LimitExceeded {
+                limit: LimitKind::TotalOutputBytes,
+                requested: 50,
+                maximum: 49,
+            })
+        ));
+        assert_eq!(budget.consumed(), 0);
+
+        let mut budget = WorkBudget::bounded(0);
+        let mut control = ParseControl::new(&cancellation, &mut budget);
+        assert!(matches!(
+            decode_ppmd(
+                PPMD_SEED,
+                &properties,
+                Some(50),
+                50,
+                Limits::default(),
+                &mut control,
+            ),
+            Err(Error::LimitExceeded {
+                limit: LimitKind::WorkUnits,
+                ..
+            })
+        ));
+
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        let mut budget = WorkBudget::unlimited();
+        let mut control = ParseControl::new(&cancelled, &mut budget);
+        assert!(matches!(
+            decode_ppmd(
+                PPMD_SEED,
+                &properties,
+                Some(50),
+                50,
+                Limits::default(),
+                &mut control,
+            ),
+            Err(Error::Cancelled)
+        ));
+        assert_eq!(budget.consumed(), 0);
     }
 
     #[test]

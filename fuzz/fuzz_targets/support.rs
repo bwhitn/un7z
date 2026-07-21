@@ -43,6 +43,7 @@ const PPMD_SEED: &[u8] = &[
     0x00,
 ];
 const PPMD_SEED_PROPERTIES: &[u8] = &[0x06, 0x00, 0x00, 0x01, 0x00];
+const PPMD_PY7ZR_SEED_PROPERTIES: &[u8] = &[0x06, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00];
 const PPMD_SEED_OUTPUT: &[u8] = b"PPMd fuzz seed: alpha beta gamma delta 0123456789\n";
 
 // Synthetic `hello\n` vectors. The BZip2 stream was produced by bzip2 1.0.8;
@@ -829,7 +830,7 @@ fn encrypted_seed(source: &[u8]) -> Option<GeneratedDecoderSeed> {
 /// Generates one of the matrix-derived positive decoder/graph seeds without
 /// invoking an external tool or retaining a complete binary archive.
 pub(crate) fn generated_decoder_seed(data: &[u8]) -> Option<GeneratedDecoderSeed> {
-    let selector = data.first().copied().map_or(0, |value| value % 20);
+    let selector = data.first().copied().map_or(0, |value| value % 21);
     let source = source_bytes(data);
     match selector {
         0 => simple_seed(copy_bytes(source)?, METHOD_COPY, None, source),
@@ -896,10 +897,16 @@ pub(crate) fn generated_decoder_seed(data: &[u8]) -> Option<GeneratedDecoderSeed
             SeedCoder::simple(METHOD_COPY, None),
             SeedCoder::simple(METHOD_DELTA, Some(&[0xff])),
         ),
-        _ => simple_seed(
+        19 => simple_seed(
             copy_bytes(PPMD_SEED)?,
             METHOD_PPMD,
             Some(PPMD_SEED_PROPERTIES),
+            PPMD_SEED_OUTPUT,
+        ),
+        _ => simple_seed(
+            copy_bytes(PPMD_SEED)?,
+            METHOD_PPMD,
+            Some(PPMD_PY7ZR_SEED_PROPERTIES),
             PPMD_SEED_OUTPUT,
         ),
     }

@@ -127,9 +127,10 @@ dependency.
 
 ## In-process decoder fuzz seeds
 
-The excluded fuzz package now constructs 20 complete small archives on every
+The excluded fuzz package now constructs 21 complete small archives on every
 run rather than retaining binary seed files. Profiles cover Copy, LZMA,
-three LZMA2 dictionary properties, Deflate, Deflate64, BZip2, PPMd, Brotli,
+three LZMA2 dictionary properties, Deflate, Deflate64, BZip2, canonical and
+zero-reserved seven-byte PPMd properties over the same packed stream, Brotli,
 LZ4, Zstandard, AES, reverse-declaration Copy, BCJ2, two filter/compressor
 chains, and three Delta distances. Input-derived plaintext is capped at 64
 bytes. The standalone `fuzz/tests/generated_seeds.rs` test verifies every
@@ -144,6 +145,12 @@ Four embedded positive packed streams have fixed origin records:
 | BZip2 `hello\n` | `/usr/bin/bzip2` 1.0.8 over synthetic input | `8f2cf133c7cb64e1407f2dc51fe6a966755130de4c257b04e26d1a9a9c92354b` | `5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03` |
 | Brotli `hello\n` | `brotli-decompressor` 5.0.3 `src/reader.rs` regression, BSD-3-Clause OR MIT | `f79a3ca17dcda113ab64c08a1c3bf146bce590ab016cb0b3bcc1409946015efe` | `5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03` |
 | PPMd order 6, 64 KiB model | Stock `7zz` 26.02 black-box command recorded below over project-authored text | `b0cfcc58d1e9615d16a77f477bef20d7759e9307f6605a19ed925d6729733854` | `350151a2946bf4981f4980e49cc308bfb129f1fe4a9e1f8471d46545090a88c9` |
+
+The Brotli completion regression derives a nine-byte hostile prefix by
+removing the final byte from the complete recorded vector. Its SHA-256 is
+`80665dbf193bc0e2fe0b50eef9b973a40391d700e102fe72b02cceb11f1fcf4a`;
+the expected result is `Format`, not decoded output. This derived negative is
+not a py7zr fixture and makes no claim about copied py7zr bytes.
 
 The PPMd source is the 50-byte project-authored UTF-8 string
 `PPMd fuzz seed: alpha beta gamma delta 0123456789\n`. On 2026-07-19,
@@ -162,6 +169,13 @@ complete archive SHA-256 was
 Only the packed test vector is embedded; the complete archive is not retained
 in the repository. The executable was used only as a black-box test oracle,
 and no 7-Zip or p7zip implementation source was inspected or incorporated.
+
+The generated compatibility test also serializes
+`06 00 00 01 00 00 00`, as externally documented for py7zr 1.1.3, around the
+same packed bytes. This seven-byte archive is project-generated and not
+oracle-authored or committed. The exact decoded bytes, dictionary/output/work/
+cancellation bounds, nonzero reserved-byte rejection, wrong-length rejection,
+and declared-property truncation are asserted in normal tests.
 
 The remaining packed records are generated deterministically from each bounded
 input using minimal stored/uncompressed frame grammar or RustCrypto AES-CBC.

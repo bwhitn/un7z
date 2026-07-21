@@ -260,11 +260,16 @@ Every archive-processing or caller-invoking Python operation has an explicit
 unwind guard; trivial values and generated class-field access remain behind
 PyO3's native trampoline. Parsing, KDF work,
 decoding, volume assembly, and CRC verification execute inside
-`Python::detach`; only provider, writer, and callback invocations reattach. `extract_entry_to` adapts
-a Python `write(bytes)` method and `stream_entry` adapts a callable to the
-core's CRC-finalizing `Archive::extract_entry_to`. The core supplies at most
-8 KiB per write. Partial writer counts are honored, impossible counts are
-rejected, callback `False` cancels, and raised Python exceptions are preserved.
+`Python::detach`; only provider, writer, and callback invocations reattach.
+`extract_entry_to` adapts a Python `write(bytes)` method and `stream_entry`
+adapts a callable to the core's CRC-finalizing single-entry path.
+`extract_entries_to` adapts a structural begin/write/finish sink directly to
+the core's natural-order `EntrySink`, using one work budget and cancellation
+token for the complete batch. The core supplies bounded control chunks
+(currently at most 4 KiB). Partial writer counts are honored, impossible
+counts are rejected, callback `False` cancels, and raised Python exceptions
+are preserved. Batch `finish_entry` remains the per-member CRC trust boundary;
+no callback name is used as a filesystem destination.
 
 Python volume providers are callables or objects with
 `open_volume(index, expected_name)` returning `bytes` or `None`. A returned

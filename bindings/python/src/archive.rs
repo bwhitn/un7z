@@ -11,7 +11,7 @@ use un7z::{Archive as CoreArchive, Error, LimitKind};
 use zeroize::Zeroizing;
 
 use crate::{
-    callback::{PythonSink, PythonVolumeProvider, SinkMode},
+    callback::{PythonEntrySink, PythonSink, PythonVolumeProvider, SinkMode},
     config::{PyCancellationToken, PyLimits, cancellation_or_new, limits_or_default, work_budget},
     errors::{detached_core, guard, map_core_error},
     metadata::{PyArchiveResources, PyEntry},
@@ -270,6 +270,33 @@ impl PyArchive {
                 let mut budget = work_budget(max_work_units);
                 let mut sink = PythonSink::new(writer, SinkMode::Writer, sink_cancellation);
                 archive.extract_entry_to(index, &mut sink, &cancellation, &mut budget)
+            })
+        })
+    }
+
+    /// Extracts every file entry through a natural-order entry sink.
+    ///
+    /// The sink receives `begin_entry(entry, size)`, bounded
+    /// `write_entry(index, chunk)` calls, and `finish_entry(index)`. Each
+    /// callback must return `None`/`True` to continue or `False` to cancel.
+    /// `finish_entry` is called only after the member and folder CRCs pass.
+    #[pyo3(signature = (sink, *, cancellation=None,
+        max_work_units=1_000_000_000))]
+    fn extract_entries_to(
+        &self,
+        py: Python<'_>,
+        sink: Py<PyAny>,
+        cancellation: Option<PyRef<'_, PyCancellationToken>>,
+        max_work_units: u64,
+    ) -> PyResult<u64> {
+        guard(|| {
+            let archive = Arc::clone(&self.value);
+            let cancellation = cancellation_or_new(cancellation.as_deref());
+            let sink_cancellation = cancellation.clone();
+            detached_core(py, move || {
+                let mut budget = work_budget(max_work_units);
+                let mut sink = PythonEntrySink::new(sink, sink_cancellation);
+                archive.extract_entries_to(&mut sink, &cancellation, &mut budget)
             })
         })
     }

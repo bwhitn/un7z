@@ -168,14 +168,24 @@ never inspected or used; `7zz` is executable test-oracle input only.
 
 ### Python callbacks, reentrancy, and unwinds
 
-A Python volume provider, writer, or stream callback may block, re-enter the
-same immutable archive, raise an exception, return an invalid type/count, or
-retain every chunk. The adapter carries only owned, thread-safe Python handles
-while Rust work is detached, reattaches around one call, validates provider
-types and writer counts, and preserves a callback exception as the same Python
-exception object. A stream callback returning `False` cancels the operation.
-Each operation has its own cancellation token and work budget; no decoder,
-password, or operation state is global.
+A Python volume provider, writer, stream callback, or batch entry sink may
+block, re-enter the same immutable archive, raise an exception, return an
+invalid type/count, or retain every chunk. The adapter carries only owned,
+thread-safe Python handles while Rust work is detached, reattaches around one
+call, validates provider types and writer counts, and preserves a callback
+exception as the same Python exception object. A callback returning `False`
+cancels the operation. Each operation has its own cancellation token and work
+budget; one pair spans every entry in a batch and is never reset between
+folders. No decoder, password, or operation state is global.
+
+The batch protocol is `begin_entry(entry, size)`, bounded
+`write_entry(index, bytes)`, and `finish_entry(index)`. Names remain metadata,
+so a hostile duplicate or unsafe name cannot choose a destination or alter
+stream mapping. The caller can observe unverified bytes before a trailing CRC
+failure, but `finish_entry` is invoked only after applicable folder/member CRCs
+succeed. Empty files still cross begin/finish boundaries. Callback exceptions,
+token cancellation, and callback-requested cancellation stop the batch without
+being converted into a format or checksum error.
 
 Provider `bytes` are already allocated in Python before Rust can inspect them.
 Their length is checked against the input limit before a fallible Rust copy,
@@ -244,6 +254,13 @@ encrypted headers are recursively resolved. It verifies applicable packed,
 additional-stream, encoded-header, folder, and member CRCs and exposes listing,
 stdout/sink extraction, and verification.
 
+PPMd accepts only its canonical five-byte property record and a narrow
+seven-byte interoperability record whose final two reserved bytes are zero.
+Both forms produce the same checked order/memory model and therefore the same
+pre-allocation dictionary, output, work, and cancellation enforcement. Brotli
+requires a complete stream; a flush-only prefix without its terminal marker is
+hostile malformed input rather than a compatibility extension.
+
 An encoded header can describe multiple logical substreams. Their declared
 known sizes are cumulatively preflighted against header and total-output limits;
 decoded ranges must partition each folder output exactly, and bytes are joined
@@ -268,11 +285,12 @@ no compatibility guarantee.
 
 The separate `bindings/python` package exposes the same owned archive model as
 `un7z._native`: path/bytes/volume-provider opening, metadata snapshots,
-verification, and caller-directed writer/callback extraction. It adds no
+verification, and caller-directed writer/callback/batch-sink extraction. It adds no
 parser, graph, decoder, cryptographic, path, or CRC implementation. Python
 callbacks can observe unverified bytes before a trailing CRC failure, but a
 native extraction call does not return success until the core finalizes all
-applicable checks.
+applicable checks. Batch extraction uses one shared operation budget/token and
+the core's one-decode-per-folder natural-order traversal.
 
 All known substream sizes in a selected folder are preflighted against the
 entry limit, not only the requested member. For an unknown final substream the

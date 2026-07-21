@@ -200,6 +200,13 @@ class Archive:
         cancellation: CancellationToken | None = ...,
         max_work_units: int = ...,
     ) -> int: ...
+    def extract_entries_to(
+        self,
+        sink: _EntrySink,
+        *,
+        cancellation: CancellationToken | None = ...,
+        max_work_units: int = ...,
+    ) -> int: ...
     def stream_entry(
         self,
         index: int,
@@ -212,6 +219,12 @@ class Archive:
 
 class _Writer(Protocol):
     def write(self, data: bytes, /) -> int: ...
+
+
+class _EntrySink(Protocol):
+    def begin_entry(self, entry: Entry, size: int, /) -> bool | None: ...
+    def write_entry(self, index: int, data: bytes, /) -> bool | None: ...
+    def finish_entry(self, index: int, /) -> bool | None: ...
 
 
 class VolumeProvider(Protocol):

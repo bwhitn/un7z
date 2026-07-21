@@ -89,10 +89,12 @@ records. A `MemberReader`
 caller can observe bytes before integrity is final and therefore must call
 `finish()`; dropping it never implies success.
 
-Python `extract_entry_to` and `stream_entry` use that high-level finalizing
-path. A Python writer or callback can observe chunks before a trailing member
-CRC fails, but the native call does not return success until member and folder
-checks finish. The binding never turns `Entry.raw_name` into a destination.
+Python `extract_entry_to`, `stream_entry`, and batch `extract_entries_to` use
+the same high-level finalizing paths. A Python writer or callback can observe
+chunks before a trailing member CRC fails, but the native call does not return
+success until member and folder checks finish. For a batch sink,
+`finish_entry` is the per-entry trust boundary and is never called for a member
+whose CRC failed. The binding never turns `Entry.raw_name` into a destination.
 
 `Archive::extract_entries_to` verifies the complete containing folder before
 delivering any of its bytes, and calls the sink's `finish_entry` only after the
@@ -110,10 +112,12 @@ Release builds explicitly
 retain unwind semantics so this boundary remains effective.
 
 Rust-only archive work detaches from the interpreter. Python is reattached only
-for provider, writer, or stream-callback calls, and no borrowed Python
-reference crosses a detached region. Callback exceptions are re-raised as the
-same Python exception object. A `False` callback requests cancellation.
-Tokens, work budgets, passwords, and decoder state are never global.
+for provider, writer, stream-callback, or batch-entry-sink calls, and no
+borrowed Python reference crosses a detached region. Callback exceptions are
+re-raised as the same Python exception object. A `False` callback requests
+cancellation. One token and one work budget span a complete batch operation;
+they are not reset between entries or folders. Tokens, work budgets, passwords,
+and decoder state are never global.
 
 Rust panic hooks are process-global and remain under the embedding
 application's control; an unwind boundary cannot suppress an already-installed
@@ -191,6 +195,14 @@ bounded main stream. PPMd and AES need declared sizes. BZip2, Brotli, LZ4, and
 Zstandard are conservatively rejected for unknown output until their adapters
 can prove exact framed-input consumption. No decoder invents a size.
 
+PPMd coder properties are admitted only as the canonical five-byte
+order/little-endian-memory record or as the py7zr 1.1.3 seven-byte form whose
+last two reserved bytes are both zero. All other lengths and nonzero reserved
+bytes are malformed. The same parsed memory value is charged against the
+dictionary limit before allocation for either form. Brotli remains strict
+about stream completion: an unfinished flush-only stream is `Format`, even
+when its already emitted prefix could produce the declared bytes.
+
 ## Password and volume boundaries
 
 `Password` owns a zeroizing UTF-16LE buffer inside one `Archive`. Derived AES
@@ -227,6 +239,12 @@ oracle. Unit and public-API regressions require exact output and reject every
 strict packed prefix, meaningful corruption, low dictionary/output/work
 budgets, and pre-cancellation before the vector is admitted as positive
 evidence.
+
+The compatibility extension wraps that same payload in generated archives
+with canonical five-byte and zero-reserved seven-byte properties. It adds no
+second PPMd implementation or external archive corpus. A separately generated
+declared-property truncation and nonzero-reserved variants must fail before
+decoding.
 
 The exact-version capability probes are classification tests, not validation
 shortcuts. Their observed `7zz` rejection of unknown packed and non-final sizes

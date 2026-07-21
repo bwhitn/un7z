@@ -48,9 +48,9 @@ exception below `Un7zError`. Every mapped exception has a stable string
 
 `InternalError` is binding-specific and indicates that an unexpected native
 unwind was contained. It exposes no panic payload. An exception raised by a
-Python volume provider, writer, or stream callback is re-raised unchanged
-rather than wrapped as `ArchiveIoError`; callback `False` is the explicit
-cancellation signal and produces `CancelledError`.
+Python volume provider, writer, stream callback, or batch entry-sink method is
+re-raised unchanged rather than wrapped as `ArchiveIoError`; callback `False`
+is the explicit cancellation signal and produces `CancelledError`.
 
 Violations of the Python callback protocol are caller errors rather than
 archive errors: a wrong provider/callback/writer return type raises
@@ -58,5 +58,8 @@ archive errors: a wrong provider/callback/writer return type raises
 Short valid writer counts are honored through the normal write contract.
 
 As in Rust, a Python output call can fail after its writer or callback observed
-bytes. Only a successful return value is the CRC-verified boundary. The binding
-does not delete, rewind, or publish a caller-owned destination.
+bytes. For one-entry operations, only a successful return value is the
+CRC-verified boundary. For `extract_entries_to`, each `finish_entry(index)` is
+called only after that member's applicable CRCs pass; an exception from
+`finish_entry` still fails the operation. The binding does not delete, rewind,
+or publish a caller-owned destination.

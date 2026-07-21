@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-18
+- Amended: 2026-07-21 (natural-order batch sink and Linux ARM64 wheels)
 - Decision owners: un7z maintainers
 
 ## Context
@@ -28,12 +29,16 @@ belong in the core.
    `None`; never derive an extraction destination from a member name.
 4. Detach Python during Rust-only opening, KDF, decoding, and verification.
    Carry only owned Python handles across that region and reattach for exactly
-   one provider, writer, or stream-callback invocation. Do not rely on the GIL
-   as a Rust data lock.
+   one provider, writer, stream-callback, or batch-entry-sink invocation. Do
+   not rely on the GIL as a Rust data lock.
 5. Use bounded writer/callback chunks and provide no complete-output return API
    by default. A callback returns `None`/`True` to continue or `False` to
    cancel. Preserve provider/writer/callback exceptions exactly. Native success
    remains after the core CRC-finalizing helper returns.
+   The batch surface directly adapts the stable natural-order `EntrySink` as
+   `begin_entry(entry, size)`, `write_entry(index, chunk)`, and
+   `finish_entry(index)`. One work budget and cancellation token span the
+   complete call; folder reuse and CRC boundaries remain core behavior.
 6. Let a Python volume provider return `bytes` or `None` for the exact
    `(index, expected_name)` request. Check the individual byte length before a
    fallible Rust copy; retain the core's aggregate volume/input/work/
@@ -49,9 +54,11 @@ belong in the core.
    only the core's per-archive secret path. Document that Rust cannot erase the
    caller's original Python `str`.
 9. Give the binding its own cargo-deny policy, lockfile, type stub, license and
-   notice payload, installed-wheel tests, sdist rebuild, MSRV check, and Linux/
-   macOS/Windows wheel matrix. Maturin and `7zz` are build/test tools only and
-   never installed as runtime fallbacks.
+   notice payload, installed-wheel tests, sdist rebuild, MSRV check, and Linux
+   x86-64/aarch64, macOS, and Windows wheel matrix. Linux aarch64 is installed
+   and exercised on a native hosted ARM64 runner. Maturin and `7zz` are
+   build/test tools only and never installed as runtime fallbacks; `py7zr` is
+   not a runtime dependency or fallback either.
 
 ## Consequences
 
@@ -66,7 +73,9 @@ constant-memory decoder.
 Because 7z integrity checks may trail output, Python sinks can observe bytes
 before an error. Callers needing atomic trusted output must publish a temporary
 destination only after native success. Reentrant calls operate on immutable
-archives with separate cancellation/work state.
+archives with separate cancellation/work state. During a batch,
+`finish_entry` is the per-entry trust boundary; names are metadata and the sink
+alone chooses destinations.
 
 ## Rejected alternatives
 

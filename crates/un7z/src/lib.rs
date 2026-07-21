@@ -52,6 +52,7 @@ mod archive;
 mod bounded;
 mod cancel;
 mod checksum;
+mod coder_properties;
 mod decode;
 mod error;
 mod execute;

@@ -3,6 +3,7 @@
 use crate::{
     Error, LimitKind, Limits, Result,
     bounded::BoundedReader,
+    coder_properties::parse_ppmd_properties,
     graph::validate_folder_graph,
     model::{
         ArchiveHeader, BindPair, Coder, ExternalProperty, FileEntry, FileStream, FilesInfo, Folder,
@@ -262,25 +263,7 @@ fn validate_coder_properties(
                     .ok_or_else(|| format_error("LZMA2 dictionary size overflows"))?,
             )
         } else if method_id == METHOD_PPMD {
-            let bytes = <[u8; 5]>::try_from(properties)
-                .map_err(|_| format_error("PPMd properties must contain exactly five bytes"))?;
-            let order = bytes
-                .first()
-                .copied()
-                .ok_or_else(|| format_error("PPMd order property is missing"))?;
-            if !(2..=64).contains(&order) {
-                return Err(format_error("PPMd order is outside 2 through 64"));
-            }
-            let memory = little_endian_u32(
-                bytes
-                    .get(1..5)
-                    .ok_or_else(|| format_error("PPMd memory property is truncated"))?,
-                "PPMd memory property is truncated",
-            )?;
-            if memory < 1 << 11 {
-                return Err(format_error("PPMd memory size is below the format minimum"));
-            }
-            Some(u64::from(memory))
+            Some(u64::from(parse_ppmd_properties(properties)?.memory_size()))
         } else if method_id == METHOD_DEFLATE64 {
             if !properties.is_empty() {
                 return Err(format_error("Deflate64 properties must be empty"));

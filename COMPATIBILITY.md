@@ -26,7 +26,9 @@ The supported public surface is listed in `API.md`. Raw parser, envelope, and
 coder-graph exports are available only through the hidden
 `unstable-internals` regression/fuzz feature and are not compatibility API.
 The `un7z` Python distribution delegates to that stable surface and adds no
-method implementation or runtime `7zz` fallback.
+method implementation or runtime `7zz`/`py7zr` fallback. Its natural-order
+batch sink uses the core's one-decode-per-folder path with one shared work
+budget and cancellation token.
 
 “Target” below means planned scope, not present codec capability.
 
@@ -84,9 +86,9 @@ metadata claim.
 | SPARC | Registered; bundled fixture | Supported | `sparc.7z`; exact bytes/SHA-256/member CRC |
 | Deflate | Registered; bundled fixture | Supported as raw Deflate with bounded 32 KiB working-memory charge and final-block unknown-size termination | `deflate.7z`; exact `7zz` bytes/SHA-256/size/CRC/metadata plus positive unknown-size and every-prefix truncation, output, dictionary, work, and cancellation tests |
 | BZip2 | Registered; bundled fixture | Supported with block-size preflight and bounded adapter | `bzip2.7z`; exact `7zz` bytes/SHA-256/size/CRC/metadata plus malformed header, memory, and cancellation tests |
-| PPMd | Registered; bundled fixture | Supported for PPMd7 variant H with declared output size | `ppmd.7z`; exact `7zz` bytes/SHA-256/size/CRC/metadata plus property and malicious-memory tests. A fixed stock-`7zz` 26.02 order-6/64-KiB packed vector adds exact output, every-prefix truncation, meaningful corruption, dictionary/output/work, and cancellation evidence |
+| PPMd | Registered; bundled fixture | Supported for PPMd7 variant H with declared output size; properties are exactly canonical five-byte order/memory or the py7zr 1.1.3 seven-byte form with two zero reserved bytes | `ppmd.7z`; exact `7zz` bytes/SHA-256/size/CRC/metadata plus generated exact extraction for both property forms, nonzero-reserved, wrong-length, declared-property truncation, malicious-memory, output/work, and cancellation tests. A fixed stock-`7zz` 26.02 order-6/64-KiB packed vector supplies the decoded bytes |
 | AES-256-CBC/SHA-256 | Registered; encrypted fixtures | Supported for declared-size AES-256-CBC streams and bounded direct/iterated 7z SHA-256 KDF | `aes7z.7z`, `t2.7z`-`t5.7z`, `7zcracker.7z`; generated header-encrypted and data-encrypted Copy exact `7zz` differentials with corruption and typed missing/wrong-password states; generated BCJ→LZMA2→AES encrypted-header differential; block truncation and KDF limit/work/cancellation tests |
-| Brotli | Registered; bundled private-method fixture | Supported, including the optional private 16-byte 7-Zip prefix | `brotli.7z` verifies and matches the common `deflate.7z` corpus bytes/SHA-256/metadata; stock `7zz` 26.02 rejects this private method ID |
+| Brotli | Registered; bundled private-method fixture | Supported for complete streams, including the optional private 16-byte 7-Zip prefix; unfinished flush-only streams are malformed | `brotli.7z` verifies and matches the common `deflate.7z` corpus bytes/SHA-256/metadata; an independently recorded complete `hello\n` stream succeeds while its end-marker-truncated py7zr-style prefix returns `Format`; stock `7zz` 26.02 rejects this private method ID |
 | LZ4 | Registered; bundled private-method fixture | Supported for checked LZ4 frames without external dictionaries | `lz4.7z` verifies and matches the common `deflate.7z` corpus bytes/SHA-256/metadata; stock `7zz` 26.02 rejects this private method ID |
 | Zstd | Registered; bundled private-method fixture | Supported for frames whose declared window is within limits; dictionary frames are typed unsupported | `zstd.7z` verifies and matches the common `deflate.7z` corpus bytes/SHA-256/metadata; stock `7zz` 26.02 rejects this private method ID |
 | Deflate64 | Not registered | Supported for stored, fixed, and dynamic blocks with a checked 64 KiB history charge and final-block EOS | Generated long-distance `deflate64.7z`; exact `7zz` bytes/SHA-256/size/CRC/metadata, direct dynamic-block regression, every stored-prefix truncation, trailing input, corruption, dictionary/output/work tests |
@@ -303,6 +305,16 @@ provenance.
   open forms. Every core limit is constructible from Python, password storage
   is accounted per archive, and an 8 MiB Copy verification confirms another
   Python thread advances while Rust-only work is detached.
+- A generated three-entry solid Copy archive exercises the Python
+  `extract_entries_to` adapter with two streamed members, an empty file, and
+  duplicate names. Tests assert natural begin/write/finish boundaries, chunks
+  no larger than the core's bound, exact bytes, one shared work budget, and a
+  batch work cost below two random-access decodes. Separate regressions cover
+  member-CRC failure before `finish_entry`, exact callback-exception identity,
+  token and `False` cancellation, pre-begin output limits, and folder-level
+  work exhaustion. Empty files receive explicit boundaries; streamless
+  directories and anti-items remain metadata-only and do not produce batch
+  sink events.
 - On 2026-07-18 the locally built `cp39-abi3` macOS wheel installed into a
   clean CPython 3.12 virtual environment and all 10 binding tests passed. Its
   sdist independently rebuilt into a wheel, and that installed wheel passed the
@@ -310,6 +322,11 @@ provenance.
   3.9 Linux/macOS/Windows wheel build/install/test jobs, binding quality gate,
   Rust 1.85 binding check, and sdist rebuild test. Those CI results establish
   the packaging/platform boundary, not additional codec evidence.
+
+The current workflow additionally builds explicit manylinux-compatible
+`cp39-abi3` wheels for Linux x86-64 and Linux aarch64 and runs the aarch64
+artifact on a native GitHub-hosted ARM64 runner. This matrix is configured but
+is not recorded as passing evidence until its first CI execution succeeds.
 
 This binding fixture establishes the FFI behavior for Copy only. The adapter
 can dispatch the core's other supported methods, but no additional method row

@@ -562,6 +562,8 @@ mod tests {
     const EMPTY_LZ4_FRAME: &[u8] = &[
         0x04, 0x22, 0x4d, 0x18, 0x60, 0x40, 0x82, 0x00, 0x00, 0x00, 0x00,
     ];
+    const COMPLETE_BROTLI_HELLO: &[u8] = b"\x8f\x02\x80hello\n\x03";
+    const BROTLI_HELLO: &[u8] = b"hello\n";
 
     fn with_control<T>(operation: impl FnOnce(&mut ParseControl<'_>) -> T) -> T {
         let cancellation = CancellationToken::new();
@@ -584,6 +586,34 @@ mod tests {
     fn does_not_strip_an_unrecognized_brotli_prefix() -> Result<()> {
         let bytes = [0_u8; 16];
         assert_eq!(brotli_payload(&bytes)?, bytes);
+        Ok(())
+    }
+
+    #[test]
+    fn complete_brotli_succeeds_and_flush_only_style_stream_fails() -> Result<()> {
+        let decoded = with_control(|control| {
+            decode_brotli(
+                COMPLETE_BROTLI_HELLO,
+                Some(6),
+                6,
+                Limits::default(),
+                control,
+            )
+        })?;
+        assert_eq!(decoded, BROTLI_HELLO);
+
+        // py7zr 1.1.3's writer is externally reported to flush without
+        // finishing. Model that interoperability boundary without importing
+        // py7zr bytes by removing only this complete vector's terminal byte.
+        let unfinished = COMPLETE_BROTLI_HELLO
+            .get(..COMPLETE_BROTLI_HELLO.len().saturating_sub(1))
+            .ok_or_else(|| crate::parse_util::format_error("Brotli test vector is empty"))?;
+        assert!(matches!(
+            with_control(|control| {
+                decode_brotli(unfinished, Some(6), 6, Limits::default(), control)
+            }),
+            Err(Error::Format { .. })
+        ));
         Ok(())
     }
 

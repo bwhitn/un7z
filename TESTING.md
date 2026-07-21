@@ -214,7 +214,14 @@ capability candidates remain diagnostic and do not establish compatibility.
 These results used cargo-llvm-cov 0.8.7, rustc/Homebrew LLVM 22.1.8, exclude
 `un7z-cli`, and remain diagnostic rather than a compatibility threshold.
 
-The excluded fuzz package has a deterministic invariant test for its 20
+On 2026-07-21 the ordinary `un7z` all-feature suite, including the generated
+PPMd compatibility and strict Brotli completion regressions, measured 76.54%
+core line coverage (73.20% regions). The new centralized
+`coder_properties.rs` measured 88.41% line coverage. This used cargo-llvm-cov
+0.8.7 with Homebrew LLVM 22.1.8, excluded the CLI and ignored oracle-only
+tests, and is diagnostic rather than a release threshold.
+
+The excluded fuzz package has a deterministic invariant test for its 21
 in-process decoder/graph seed profiles and eight structured mutation classes:
 
 ```text
@@ -227,9 +234,11 @@ LibFuzzer counter/feature observations from the subsequent 100,000-execution
 decoder campaign and 50,000-execution campaigns for the other targets are
 recorded, with their sanitizer limitation, in `FUZZING.md`.
 
-The twentieth profile is a fixed stock-`7zz` 26.02 PPMd order-6/64-KiB vector
+The twentieth and twenty-first profiles use a fixed stock-`7zz` 26.02 PPMd
+order-6/64-KiB vector
 whose exact command and hashes are recorded in `CORPUS.md`. A core unit test
-checks its exact 50-byte output, every strict packed prefix, and output/work
+checks its exact 50-byte output through canonical five-byte and zero-reserved
+seven-byte property records, every strict packed prefix, and output/work
 limits. The public fuzz integration regression additionally checks meaningful
 packed corruption, bounded property mutations, folder CRC failure, dictionary
 and output limits, zero work, and pre-cancellation. Run alone under
@@ -304,6 +313,13 @@ providers and exact missing-volume names, and interpreter detachment during an
 delivery spans multiple chunks and no chunk exceeds 8 KiB; partial writer
 counts are honored and an impossible count is rejected.
 
+The batch fixture independently generates a three-entry solid Copy archive
+with two streamed members, an empty member, and duplicate names. It asserts
+natural begin/write/finish sequencing, exact output, bounded chunks, member CRC
+failure before finish, exact exceptions from write and finish callbacks,
+callback/token cancellation, output preflight, one shared work budget, and a
+batch cost proving the solid folder is decoded at most once.
+
 On 2026-07-18 the locally built `cp39-abi3` macOS wheel installed into a clean
 CPython 3.12 virtual environment and all 10 binding tests passed. The sdist
 also rebuilt into a wheel in an isolated PEP 517 build; that rebuilt wheel was
@@ -312,3 +328,19 @@ observed successful Python 3.9 wheel build/install/tests on Linux, macOS, and
 Windows, plus the Rust 1.85 binding gate and sdist rebuild test. These are
 packaging/FFI platform results; the independent Python fixture still adds
 positive decoder evidence only for Copy.
+
+On 2026-07-21 a locally built `cp39-abi3` macOS x86-64 wheel installed into a
+clean virtual environment and all 13 binding tests passed. CI now has explicit
+manylinux-compatible Linux x86-64 and aarch64 build jobs; the aarch64 artifact
+is installed and tested on a native `ubuntu-24.04-arm` runner. Those new Linux
+jobs remain configured evidence until their first hosted run completes.
+
+The same 2026-07-21 local gate passed root and separately locked binding/fuzz
+format checks, root strict all-target/all-feature Clippy, binding and fuzz
+strict Clippy, 173 non-ignored Rust tests plus the core doctest, two binding
+Rust tests, 13 installed-wheel Python tests, the 21-profile fuzz generator,
+and cargo-deny 0.20.2 for all three dependency graphs. The host wheel is
+`un7z-0.1.0-cp39-abi3-macosx_10_12_x86_64.whl`; its metadata has no
+`Requires-Dist`. Local Miri, Rust 1.85 execution, Linux wheel execution, and
+instrumented cargo-fuzz are unavailable on this Intel macOS stable-only host
+and remain configured CI gates.

@@ -85,6 +85,115 @@ def copy_archive(payload: bytes, raw_name: list[int] | None = None) -> bytes:
     )
 
 
+def bit_vector(values: list[bool]) -> bytes:
+    output = bytearray((len(values) + 7) // 8)
+    for index, value in enumerate(values):
+        if value:
+            output[index // 8] |= 0x80 >> (index % 8)
+    return bytes(output)
+
+
+def solid_copy_archive(
+    entries: list[tuple[str, bytes | None]],
+    *,
+    corrupt_stream_index: int | None = None,
+) -> bytes:
+    streamed = [payload for _, payload in entries if payload is not None]
+    if len(streamed) < 2:
+        raise ValueError("solid fixture requires at least two streamed entries")
+    payload = b"".join(streamed)
+
+    streams = bytearray((0x06,))
+    streams += encode_uint(0)
+    streams += encode_uint(1)
+    streams.append(0x09)
+    streams += encode_uint(len(payload))
+    streams += bytes((0x0A, 1))
+    streams += crc32(payload).to_bytes(4, "little")
+    streams += bytes((0x00, 0x07, 0x0B))
+    streams += encode_uint(1)
+    streams.append(0)
+    streams += encode_uint(1)
+    streams += bytes((1, 0))
+    streams.append(0x0C)
+    streams += encode_uint(len(payload))
+    streams += bytes((0x0A, 1))
+    streams += crc32(payload).to_bytes(4, "little")
+    streams.append(0)
+    streams += bytes((0x08, 0x0D))
+    streams += encode_uint(len(streamed))
+    streams.append(0x09)
+    for member in streamed[:-1]:
+        streams += encode_uint(len(member))
+    streams += bytes((0x0A, 1))
+    for index, member in enumerate(streamed):
+        checksum = crc32(member)
+        if index == corrupt_stream_index:
+            checksum ^= 1
+        streams += checksum.to_bytes(4, "little")
+    streams += bytes((0, 0))
+
+    files = bytearray()
+    files += encode_uint(len(entries))
+    empty_streams = [member is None for _, member in entries]
+    if any(empty_streams):
+        empty_stream_vector = bit_vector(empty_streams)
+        files.append(0x0E)
+        files += encode_uint(len(empty_stream_vector))
+        files += empty_stream_vector
+        empty_file_vector = bit_vector([True for empty in empty_streams if empty])
+        files.append(0x0F)
+        files += encode_uint(len(empty_file_vector))
+        files += empty_file_vector
+    name_property = bytearray((0,))
+    for name, _ in entries:
+        for unit in name.encode("utf-16-le"):
+            name_property.append(unit)
+        name_property += b"\0\0"
+    files.append(0x11)
+    files += encode_uint(len(name_property))
+    files += name_property
+    files.append(0)
+
+    next_header = bytearray((0x01, 0x04))
+    next_header += streams
+    next_header.append(0x05)
+    next_header += files
+    next_header.append(0)
+
+    start_fields = bytearray()
+    start_fields += len(payload).to_bytes(8, "little")
+    start_fields += len(next_header).to_bytes(8, "little")
+    start_fields += crc32(next_header).to_bytes(4, "little")
+    return (
+        SIGNATURE
+        + bytes((0, 4))
+        + crc32(start_fields).to_bytes(4, "little")
+        + start_fields
+        + payload
+        + next_header
+    )
+
+
+class CollectEntrySink:
+    def __init__(self) -> None:
+        self.events: list[tuple[object, ...]] = []
+        self.entries: dict[int, bytearray] = {}
+        self.chunks: list[int] = []
+
+    def begin_entry(self, entry: un7z.Entry, size: int) -> None:
+        self.events.append(("begin", entry.index, entry.name, size))
+        self.entries[entry.index] = bytearray()
+
+    def write_entry(self, index: int, chunk: bytes) -> None:
+        self.events.append(("write", index, len(chunk)))
+        self.entries[index].extend(chunk)
+        self.chunks.append(len(chunk))
+
+    def finish_entry(self, index: int) -> None:
+        self.events.append(("finish", index))
+
+
 class BindingTests(unittest.TestCase):
     def test_distribution_and_native_module_names(self) -> None:
         self.assertEqual(importlib.metadata.version("un7z"), "0.1.0")
@@ -200,6 +309,168 @@ class BindingTests(unittest.TestCase):
 
         self.assertEqual(archive.stream_entry(0, reenter), len(b"callback"))
         self.assertTrue(reentered[0])
+
+    def test_batch_sink_preserves_natural_entry_boundaries(self) -> None:
+        first = b"a" * 9_000
+        second = b"b" * 9_000
+        archive = un7z.open_bytes(
+            solid_copy_archive(
+                [("duplicate.bin", first), ("empty.bin", None), ("duplicate.bin", second)]
+            )
+        )
+        sink = CollectEntrySink()
+        self.assertEqual(archive.extract_entries_to(sink), len(first) + len(second))
+        self.assertEqual(bytes(sink.entries[0]), first)
+        self.assertEqual(bytes(sink.entries[1]), b"")
+        self.assertEqual(bytes(sink.entries[2]), second)
+        self.assertTrue(sink.chunks)
+        self.assertLessEqual(max(sink.chunks), 8 * 1024)
+        self.assertEqual(
+            [event for event in sink.events if event[0] != "write"],
+            [
+                ("begin", 0, "duplicate.bin", len(first)),
+                ("finish", 0),
+                ("begin", 1, "empty.bin", 0),
+                ("finish", 1),
+                ("begin", 2, "duplicate.bin", len(second)),
+                ("finish", 2),
+            ],
+        )
+
+    def test_batch_crc_callback_and_cancellation_failures_stop_boundaries(self) -> None:
+        entries = [("first.bin", b"first"), ("second.bin", b"second")]
+        corrupt = un7z.open_bytes(solid_copy_archive(entries, corrupt_stream_index=1))
+        corrupt_sink = CollectEntrySink()
+        with self.assertRaises(un7z.ChecksumError) as checksum:
+            corrupt.extract_entries_to(corrupt_sink)
+        self.assertEqual(checksum.exception.scope, "member")
+        self.assertEqual(checksum.exception.member_index, 1)
+        self.assertIn(("finish", 0), corrupt_sink.events)
+        self.assertNotIn(("finish", 1), corrupt_sink.events)
+
+        archive = un7z.open_bytes(solid_copy_archive(entries))
+
+        class MarkerError(Exception):
+            pass
+
+        begin_marker = MarkerError("begin callback marker")
+
+        class BeginFailingSink(CollectEntrySink):
+            def begin_entry(self, entry: un7z.Entry, size: int) -> None:
+                raise begin_marker
+
+        with self.assertRaises(MarkerError) as begin_callback:
+            archive.extract_entries_to(BeginFailingSink())
+        self.assertIs(begin_callback.exception, begin_marker)
+
+        marker = MarkerError("batch callback marker")
+
+        class FailingSink(CollectEntrySink):
+            def write_entry(self, index: int, chunk: bytes) -> None:
+                if index == 1:
+                    raise marker
+                super().write_entry(index, chunk)
+
+        with self.assertRaises(MarkerError) as callback:
+            archive.extract_entries_to(FailingSink())
+        self.assertIs(callback.exception, marker)
+
+        finish_marker = MarkerError("finish callback marker")
+
+        class FinishFailingSink(CollectEntrySink):
+            def finish_entry(self, index: int) -> None:
+                if index == 0:
+                    raise finish_marker
+                super().finish_entry(index)
+
+        with self.assertRaises(MarkerError) as finish_callback:
+            archive.extract_entries_to(FinishFailingSink())
+        self.assertIs(finish_callback.exception, finish_marker)
+
+        token = un7z.CancellationToken()
+
+        class CancellingSink(CollectEntrySink):
+            def write_entry(self, index: int, chunk: bytes) -> None:
+                super().write_entry(index, chunk)
+                token.cancel()
+
+        cancelled_sink = CancellingSink()
+        with self.assertRaises(un7z.CancelledError):
+            archive.extract_entries_to(cancelled_sink, cancellation=token)
+        self.assertNotIn(("finish", 0), cancelled_sink.events)
+
+        class FalseSink(CollectEntrySink):
+            def begin_entry(self, entry: un7z.Entry, size: int) -> bool:
+                super().begin_entry(entry, size)
+                return False
+
+        with self.assertRaises(un7z.CancelledError):
+            archive.extract_entries_to(FalseSink())
+
+    def test_batch_output_limit_and_shared_work_budget(self) -> None:
+        first = b"a" * 9_000
+        second = b"b" * 9_000
+        archive_bytes = solid_copy_archive([("first.bin", first), ("second.bin", second)])
+        limited = un7z.open_bytes(
+            archive_bytes,
+            limits=un7z.Limits(max_entry_output_bytes=len(first) - 1),
+        )
+        limited_sink = CollectEntrySink()
+        with self.assertRaises(un7z.LimitExceededError) as output_limit:
+            limited.extract_entries_to(limited_sink)
+        self.assertEqual(output_limit.exception.limit, "entry_output_bytes")
+        self.assertEqual(limited_sink.events, [])
+
+        archive = un7z.open_bytes(archive_bytes)
+
+        def minimum_work(operation: object) -> int:
+            if not callable(operation):
+                raise TypeError("test operation must be callable")
+            lower = -1
+            upper = 1
+            while True:
+                try:
+                    operation(upper)
+                    break
+                except un7z.LimitExceededError as error:
+                    if error.limit != "work_units":
+                        raise
+                    upper *= 2
+            while upper - lower > 1:
+                middle = (upper + lower) // 2
+                try:
+                    operation(middle)
+                    upper = middle
+                except un7z.LimitExceededError as error:
+                    if error.limit != "work_units":
+                        raise
+                    lower = middle
+            return upper
+
+        first_work = minimum_work(
+            lambda maximum: archive.extract_entry_to(
+                0, io.BytesIO(), max_work_units=maximum
+            )
+        )
+        second_work = minimum_work(
+            lambda maximum: archive.extract_entry_to(
+                1, io.BytesIO(), max_work_units=maximum
+            )
+        )
+        batch_work = minimum_work(
+            lambda maximum: archive.extract_entries_to(
+                CollectEntrySink(), max_work_units=maximum
+            )
+        )
+        self.assertGreater(batch_work, max(first_work, second_work))
+        self.assertLess(batch_work, first_work + second_work)
+
+        with self.assertRaises(un7z.LimitExceededError) as shared:
+            archive.extract_entries_to(
+                CollectEntrySink(),
+                max_work_units=max(first_work, second_work),
+            )
+        self.assertEqual(shared.exception.limit, "work_units")
 
     def test_corrupt_member_never_reports_success(self) -> None:
         archive_bytes = bytearray(copy_archive(b"checksum"))
